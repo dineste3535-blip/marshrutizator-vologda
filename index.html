@@ -1862,216 +1862,143 @@ function loadRoute(id) {
 
 // ══════════════════════════════════════════
 // PDF EXPORT (с картой и маршрутом)
+// Текст рендерится через html2canvas — кириллица отображается корректно
 // ══════════════════════════════════════════
 async function exportPDF() {
   showToast('⏳ Генерация PDF...');
 
-  // Скрываем UI-элементы, которые не нужны на скриншоте
   const modeBar = document.getElementById('mode-bar');
   const ptLoader = document.getElementById('pt-loading');
   modeBar.style.display = 'none';
   ptLoader.style.display = 'none';
 
-  // Ждём, пока тайлы подгрузятся
-  await new Promise(r => setTimeout(r, 800));
+  // Рендерим HTML-блок в canvas (браузер корректно отображает кириллицу)
+  async function captureHtml(htmlContent, width = 1160) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = `position:fixed;left:-9999px;top:0;width:${width}px;
+      background:#111318;font-family:'Rubik',sans-serif;
+      padding:28px 32px;box-sizing:border-box;color:#e2e8f0;line-height:1.5`;
+    wrap.innerHTML = htmlContent;
+    document.body.appendChild(wrap);
+    await new Promise(r => setTimeout(r, 120));
+    const c = await html2canvas(wrap, {
+      useCORS: true, scale: 1.5, backgroundColor: '#111318', logging: false
+    });
+    document.body.removeChild(wrap);
+    return c;
+  }
+
+  // Добавляем canvas-изображение на страницу PDF с сохранением пропорций
+  function addCanvasPage(pdf, canvas, pageW, pageH, margin) {
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+    const ratio = canvas.width / canvas.height;
+    let w = maxW, h = w / ratio;
+    if (h > maxH) { h = maxH; w = h * ratio; }
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, w, h);
+  }
 
   try {
-    const mapEl = document.getElementById('map');
-    const canvas = await html2canvas(mapEl, {
-      useCORS: true,
-      allowTaint: false,
-      scale: 1.5,
-      backgroundColor: '#111318',
-      logging: false,
-      imageTimeout: 10000
+    // ── Страница 1: карта ──
+    await new Promise(r => setTimeout(r, 800));
+    const mapCanvas = await html2canvas(document.getElementById('map'), {
+      useCORS: true, allowTaint: false, scale: 1.5,
+      backgroundColor: '#111318', logging: false, imageTimeout: 10000
     });
-
     modeBar.style.display = '';
 
     const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
-
-    const pageW = 297; // A4 landscape width mm
-    const pageH = 210;
-    const margin = 10;
-
-    // ── Заголовок ──
-    pdf.setFillColor(17, 19, 24);
-    pdf.rect(0, 0, pageW, pageH, 'F');
-
-    pdf.setTextColor(226, 232, 240);
-    pdf.setFontSize(16);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('🗺 Карта и маршрут — Вологда', margin, margin + 6);
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = 297, pageH = 210, margin = 10;
 
     const now = new Date();
-    const dateStr = now.toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' }) +
-                    '  ' + now.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
-    pdf.setFontSize(9);
-    pdf.setTextColor(100, 116, 139);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(dateStr, pageW - margin, margin + 6, { align:'right' });
+    const dateStr = now.toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' })
+                  + ' ' + now.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
 
-    // ── Карта ──
-    const mapImgData = canvas.toDataURL('image/jpeg', 0.88);
+    // Заголовок через html2canvas (кириллица)
+    const titleCanvas = await captureHtml(`
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  border-bottom:1px solid #1f2330;padding-bottom:10px">
+        <span style="font-size:20px;font-weight:700;color:#e2e8f0">🗺 Карта и маршрут — Вологда</span>
+        <span style="font-size:12px;color:#4b5563">${dateStr}</span>
+      </div>`, 1160);
+    const titleH = (titleCanvas.height / titleCanvas.width) * (pageW - margin * 2);
+    pdf.addImage(titleCanvas.toDataURL('image/png'), 'PNG', margin, margin, pageW - margin * 2, Math.min(titleH, 14));
+
+    // Карта
+    const mapData = mapCanvas.toDataURL('image/jpeg', 0.88);
     const mapAreaW = pageW - margin * 2;
-    const mapAreaH = pageH - margin * 3 - 12;
-    const imgRatio = canvas.width / canvas.height;
-    let imgW = mapAreaW;
-    let imgH = imgW / imgRatio;
-    if (imgH > mapAreaH) { imgH = mapAreaH; imgW = imgH * imgRatio; }
-
+    const mapAreaH = pageH - margin * 3 - 16;
+    const ratio = mapCanvas.width / mapCanvas.height;
+    let imgW = mapAreaW, imgH = imgW / ratio;
+    if (imgH > mapAreaH) { imgH = mapAreaH; imgW = imgH * ratio; }
     const mapX = margin + (mapAreaW - imgW) / 2;
-    const mapY = margin + 12;
-
-    // Рамка карты
     pdf.setDrawColor(47, 63, 90);
     pdf.setLineWidth(0.5);
-    pdf.rect(mapX - 1, mapY - 1, imgW + 2, imgH + 2);
-    pdf.addImage(mapImgData, 'JPEG', mapX, mapY, imgW, imgH);
+    pdf.rect(mapX - 1, margin + 15, imgW + 2, imgH + 2);
+    pdf.addImage(mapData, 'JPEG', mapX, margin + 16, imgW, imgH);
 
-    // ── Таблица маршрута (если есть остановки) ──
+    // ── Страница 2: таблица маршрута ──
     if (STOPS.length > 0) {
-      pdf.addPage();
-      pdf.setFillColor(17, 19, 24);
-      pdf.rect(0, 0, pageW, pageH, 'F');
-
-      pdf.setTextColor(226, 232, 240);
-      pdf.setFontSize(14);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Маршрут: остановки и сотрудники', margin, margin + 6);
-
-      const routeName = ROUTES_LIST.find(r => r.id === activeRouteId)?.name || 'Маршрут';
-      pdf.setFontSize(10);
-      pdf.setTextColor(100, 116, 139);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(routeName, margin, margin + 13);
-
-      // Шапка таблицы
-      let y = margin + 22;
-      const col = [margin, margin + 10, margin + 65, margin + 120];
-      const rowH = 8;
-
-      pdf.setFillColor(30, 41, 59);
-      pdf.rect(margin, y - 5, pageW - margin * 2, rowH, 'F');
-      pdf.setTextColor(148, 163, 184);
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('#', col[0] + 1, y);
-      pdf.text('Остановка', col[1] + 1, y);
-      pdf.text('Время', col[2] + 1, y);
-      pdf.text('Сотрудники', col[3] + 1, y);
-      y += rowH;
-
-      // Строки
-      pdf.setFont('helvetica', 'normal');
-      STOPS.forEach((s, i) => {
-        if (y > pageH - margin) {
-          pdf.addPage();
-          pdf.setFillColor(17, 19, 24);
-          pdf.rect(0, 0, pageW, pageH, 'F');
-          y = margin + 10;
-        }
-        const bg = i % 2 === 0 ? [20, 24, 35] : [15, 18, 26];
-        pdf.setFillColor(...bg);
-        pdf.rect(margin, y - 5, pageW - margin * 2, rowH, 'F');
-
-        pdf.setTextColor(226, 232, 240);
-        pdf.setFontSize(8);
-        pdf.text(String(i + 1), col[0] + 1, y);
-        pdf.text(s.name || ('Ост. ' + s.id), col[1] + 1, y);
-        pdf.text(s.time || '—', col[2] + 1, y);
-
-        const empNames = s.assignedEmps
-          .map(id => EMP.find(e => e.id === id)?.name || '?')
-          .join(', ') || '—';
-        const truncated = empNames.length > 80 ? empNames.slice(0, 77) + '...' : empNames;
-        pdf.text(truncated, col[3] + 1, y);
-        y += rowH;
-      });
-
-      // Итого
-      y += 4;
-      pdf.setTextColor(100, 116, 139);
-      pdf.setFontSize(8);
       const covered = new Set(STOPS.flatMap(s => s.assignedEmps)).size;
-      pdf.text(`Всего остановок: ${STOPS.length}   ·   Охвачено сотрудников: ${covered} из ${EMP.length}`, margin, y);
+      const routeName = ROUTES_LIST.find(r => r.id === activeRouteId)?.name || 'Маршрут 1';
+      const rows = STOPS.map((s, i) => {
+        const emps = s.assignedEmps.map(id => EMP.find(e => e.id === id)?.name || '?').join(', ') || '—';
+        const bg = i % 2 === 0 ? '#14182b' : '#0f121a';
+        return `<tr style="background:${bg}">
+          <td style="padding:6px 8px;color:#9ca3af">${i+1}</td>
+          <td style="padding:6px 8px;font-weight:600;color:#e2e8f0">${s.name || 'Ост.'+s.id}</td>
+          <td style="padding:6px 8px;color:#f59e0b">${s.time || '—'}</td>
+          <td style="padding:6px 8px;color:#d1d5db">${emps}</td>
+        </tr>`;
+      }).join('');
+
+      const routeCanvas = await captureHtml(`
+        <h2 style="font-size:20px;font-weight:700;color:#e2e8f0;margin:0 0 6px">Маршрут: остановки и сотрудники</h2>
+        <p style="font-size:12px;color:#4b5563;margin:0 0 16px">
+          ${routeName} &nbsp;·&nbsp; Остановок: ${STOPS.length} &nbsp;·&nbsp; Охвачено: ${covered} из ${EMP.length} чел.
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#1e293b">
+              <th style="color:#94a3b8;padding:8px;text-align:left;width:32px">#</th>
+              <th style="color:#94a3b8;padding:8px;text-align:left;width:220px">Остановка</th>
+              <th style="color:#94a3b8;padding:8px;text-align:left;width:80px">Время</th>
+              <th style="color:#94a3b8;padding:8px;text-align:left">Сотрудники</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`);
+      pdf.addPage();
+      addCanvasPage(pdf, routeCanvas, pageW, pageH, margin);
     }
 
-    // ── Список сотрудников (последняя страница) ──
-    pdf.addPage();
-    pdf.setFillColor(17, 19, 24);
-    pdf.rect(0, 0, pageW, pageH, 'F');
+    // ── Страницы 3+: список сотрудников (по 28 на страницу) ──
+    const chunkSize = 28;
+    for (let start = 0; start < EMP.length; start += chunkSize) {
+      const chunk = EMP.slice(start, start + chunkSize);
+      const rows = chunk.map((e, i) => {
+        const assigned = getStopForEmp(e.id);
+        const bg = i % 2 === 0 ? '#14182b' : '#0f121a';
+        return `<tr style="background:${bg}">
+          <td style="padding:5px 6px;color:#6b7280">${e.id}</td>
+          <td style="padding:5px 6px;font-weight:600;color:#e2e8f0">${e.name}</td>
+          <td style="padding:5px 6px;color:#9ca3af">${e.pos || ''}</td>
+          <td style="padding:5px 6px;color:#9ca3af">${e.addr}</td>
+          <td style="padding:5px 6px;color:#60a5fa">${e.tr === '—' ? '' : e.tr}</td>
+          <td style="padding:5px 6px;color:#f59e0b">${assigned ? (assigned.name || 'Ост.'+assigned.id) : '—'}</td>
+        </tr>`;
+      }).join('');
 
-    pdf.setTextColor(226, 232, 240);
-    pdf.setFontSize(14);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Список сотрудников', margin, margin + 6);
-
-    const headers = ['#', 'ФИО', 'Должность', 'Адрес', 'Транспорт', 'Остановка'];
-    const colW    = [8, 50, 55, 50, 35, 35];
-    let cx = margin;
-    let ey = margin + 22;
-
-    pdf.setFillColor(30, 41, 59);
-    pdf.rect(margin, ey - 5, pageW - margin * 2, 8, 'F');
-    pdf.setTextColor(148, 163, 184);
-    pdf.setFontSize(7);
-    pdf.setFont('helvetica', 'bold');
-    headers.forEach((h, i) => { pdf.text(h, cx + 1, ey); cx += colW[i]; });
-    ey += 8;
-
-    pdf.setFont('helvetica', 'normal');
-    EMP.forEach((e, idx) => {
-      if (ey > pageH - margin) {
-        pdf.addPage();
-        pdf.setFillColor(17, 19, 24);
-        pdf.rect(0, 0, pageW, pageH, 'F');
-        ey = margin + 10;
-      }
-      const rowBg = idx % 2 === 0 ? [20, 24, 35] : [15, 18, 26];
-      pdf.setFillColor(...rowBg);
-      pdf.rect(margin, ey - 5, pageW - margin * 2, 7, 'F');
-
-      pdf.setTextColor(226, 232, 240);
-      pdf.setFontSize(7);
-
-      const assigned = getStopForEmp(e.id);
-      const cells = [
-        String(e.id),
-        e.name.slice(0, 28),
-        (e.pos || '').slice(0, 30),
-        e.addr.slice(0, 28),
-        (e.tr === '—' ? '' : e.tr).slice(0, 20),
-        assigned ? (assigned.name || 'Ост. ' + assigned.id).slice(0, 20) : '—'
-      ];
-      cx = margin;
-      cells.forEach((cell, i) => {
-        pdf.text(cell, cx + 1, ey);
-        cx += colW[i];
-      });
-      ey += 7;
-    });
-
-    const ts = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
-    pdf.save(`маршрут_вологда_${ts}.pdf`);
-    showToast('✓ PDF сохранён');
-  } catch(err) {
-    modeBar.style.display = '';
-    console.error('PDF error:', err);
-    showToast('✗ Ошибка генерации PDF', true);
-  }
-}
-
-// ══════════════════════════════════════════
-// INIT
-// ══════════════════════════════════════════
-window.assignEmpFromPopup = assignEmpFromPopup;
-window.retryGeocodeEmp   = retryGeocodeEmp;
-
-renderRouteSelector();
-runGeocoding();
-
-</script>
-</body>
-</html>
+      const isFirst = start === 0;
+      const empCanvas = await captureHtml(`
+        ${isFirst
+          ? '<h2 style="font-size:20px;font-weight:700;color:#e2e8f0;margin:0 0 16px">Список сотрудников</h2>'
+          : `<p style="font-size:12px;color:#4b5563;margin:0 0 12px">продолжение (${start+1}–${Math.min(start+chunkSize,EMP.length)})</p>`}
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#1e293b">
+              <th style="color:#94a3b8;padding:7px 6px;text-align:left;width:28px">#</th>
+              <th style="color:#94a3b8;padding:7px 6px;text-align:left;width:180px">ФИО</th>
+              <th style="color:#94a3b8;padding:7px 6px;text-align:left;width:180px">Должность</th>
+              <th style="color:#94a3b8;padding:7px 6px;text-align:left;widt

@@ -1,0 +1,2077 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Карта и маршрут — Вологда</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Rubik',sans-serif; display:flex; height:100vh; overflow:hidden; background:#111318; }
+
+/* ── SIDEBAR ── */
+#sidebar {
+  width:360px; flex-shrink:0;
+  background:#111318;
+  display:flex; flex-direction:column; overflow:hidden;
+  border-right:1px solid #1f2330;
+  position:relative; z-index:1000;
+}
+#header { padding:14px 18px 12px; background:#0d0f14; border-bottom:1px solid #1f2330; }
+#header h1 { font-size:14px; font-weight:700; color:#e2e8f0; letter-spacing:.3px; }
+#header p  { font-size:10px; color:#4b5563; margin-top:2px; }
+
+/* progress */
+#prog-bar { height:3px; background:#1f2330; }
+#prog-fill { height:100%; background:linear-gradient(90deg,#2563eb,#60a5fa); width:0%; transition:width .4s; }
+#prog-text { padding:5px 18px 6px; font-size:10px; color:#4b5563; display:flex; justify-content:space-between; border-bottom:1px solid #1f2330; }
+
+/* tabs */
+#tabs { display:flex; border-bottom:1px solid #1f2330; }
+.tab {
+  flex:1; padding:9px 0; text-align:center;
+  font-size:12px; font-weight:600; color:#4b5563;
+  cursor:pointer; border-bottom:2px solid transparent;
+  transition:all .15s;
+}
+.tab.active { color:#60a5fa; border-bottom-color:#2563eb; }
+.tab:hover:not(.active) { color:#9ca3af; }
+
+/* legend */
+#legend {
+  padding:7px 18px; background:#0d0f14; border-bottom:1px solid #1f2330;
+  display:flex; flex-wrap:wrap; gap:5px 10px;
+}
+.leg { display:flex; align-items:center; gap:4px; font-size:9.5px; color:#9ca3af; }
+.leg-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+/* filter */
+#filter-wrap { padding:8px 18px; border-bottom:1px solid #1f2330; display:flex; gap:7px; }
+#search-emp {
+  flex:1; background:#1a1d27; border:1px solid #2a2f3d; border-radius:7px;
+  padding:6px 10px; font-size:12px; color:#e2e8f0; font-family:'Rubik',sans-serif; outline:none;
+}
+#search-emp::placeholder { color:#4b5563; }
+#search-emp:focus { border-color:#2563eb; }
+#fit-btn {
+  background:#1a1d27; border:1px solid #2a2f3d; border-radius:7px;
+  padding:5px 10px; font-size:11px; color:#9ca3af; cursor:pointer; white-space:nowrap;
+  transition:all .15s; font-family:'Rubik',sans-serif;
+}
+#fit-btn:hover { background:#22263a; color:#e2e8f0; border-color:#3b4a6e; }
+
+/* panels */
+.panel { flex:1; overflow-y:auto; display:none; }
+.panel.active { display:block; }
+.panel::-webkit-scrollbar { width:3px; }
+.panel::-webkit-scrollbar-thumb { background:#1f2330; border-radius:2px; }
+
+/* emp list */
+.emp-item {
+  padding:8px 18px; cursor:pointer; border-left:3px solid transparent;
+  transition:background .12s, border-color .12s;
+}
+.emp-item:hover { background:#161a24; }
+.emp-item.active { background:#131a2e; border-left-color:#2563eb; }
+.emp-item.not-found { opacity:.45; cursor:default; }
+.emp-row1 { display:flex; align-items:center; gap:6px; margin-bottom:2px; }
+.emp-num  { font-size:10px; color:#374151; min-width:16px; }
+.emp-dot  { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.emp-name { font-size:12px; font-weight:600; color:#d1d5db; }
+.emp-spin { font-size:9px; color:#374151; margin-left:auto; }
+.emp-addr { font-size:10.5px; color:#4b5563; padding-left:22px; margin-bottom:1px; }
+.emp-trans{ font-size:10px; color:#374151; padding-left:22px; }
+
+/* route panel */
+#route-panel { flex:1; overflow-y:auto; display:none; }
+#route-panel.active { display:flex; flex-direction:column; }
+#route-panel::-webkit-scrollbar { width:3px; }
+#route-panel::-webkit-scrollbar-thumb { background:#1f2330; border-radius:2px; }
+
+#route-hint {
+  padding:14px 18px; font-size:11px; color:#4b5563; line-height:1.6;
+  border-bottom:1px solid #1f2330;
+}
+#route-hint b { color:#9ca3af; }
+#route-hint.has-stops { display:none; }
+
+#stops-list { flex:1; overflow-y:auto; padding:6px 0; }
+#stops-list::-webkit-scrollbar { width:3px; }
+#stops-list::-webkit-scrollbar-thumb { background:#1f2330; border-radius:2px; }
+
+.stop-item {
+  padding:9px 18px; border-left:3px solid transparent;
+  cursor:pointer; transition:background .12s;
+  border-bottom:1px solid #1a1d27;
+}
+.stop-item:hover { background:#161a24; }
+.stop-item.active { border-left-color:#f59e0b; background:#1a1a10; }
+.stop-row1 { display:flex; align-items:center; gap:6px; margin-bottom:3px; }
+.stop-seq { width:20px; height:20px; border-radius:50%; background:#f59e0b; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#000; flex-shrink:0; }
+.stop-name { font-size:12px; font-weight:600; color:#d1d5db; flex:1; }
+.stop-time-badge { font-size:10px; color:#f59e0b; padding:2px 7px; border:1px solid #f59e0b44; border-radius:10px; }
+.stop-emps { font-size:10px; color:#4b5563; padding-left:26px; margin-bottom:3px; }
+.stop-btns { display:flex; gap:5px; padding-left:26px; }
+.stop-btn {
+  font-size:10px; padding:2px 8px; border-radius:5px; cursor:pointer;
+  font-family:'Rubik',sans-serif; transition:all .15s; border:1px solid;
+}
+.stop-btn-up   { background:#1a1d27; border-color:#2a2f3d; color:#6b7280; }
+.stop-btn-down { background:#1a1d27; border-color:#2a2f3d; color:#6b7280; }
+.stop-btn-del  { background:#1a0a0a; border-color:#7f1d1d44; color:#ef4444; }
+.stop-btn:hover { opacity:.8; }
+
+#route-stats {
+  padding:10px 18px; background:#0d0f14; border-top:1px solid #1f2330;
+  font-size:10.5px; color:#4b5563; display:flex; justify-content:space-between;
+}
+#route-stats span { color:#9ca3af; }
+
+#clear-route-btn {
+  margin:0 18px 14px; padding:7px; background:#1a0a0a; border:1px solid #7f1d1d55;
+  border-radius:7px; color:#ef4444; font-size:11px; font-family:'Rubik',sans-serif;
+  cursor:pointer; text-align:center; transition:all .15s;
+}
+#clear-route-btn:hover { background:#2a1010; }
+
+/* ── MAP ── */
+#map-wrap { flex:1; position:relative; }
+#map { height:100%; width:100%; }
+#map.mode-add-stop { cursor:crosshair !important; }
+#map.mode-move { cursor:move !important; }
+
+/* mode toolbar */
+#mode-bar {
+  position:absolute; top:12px; left:50%; transform:translateX(-50%);
+  z-index:800; display:flex; gap:4px;
+  background:rgba(13,15,20,0.92); border:1px solid #1f2330;
+  border-radius:30px; padding:5px 8px;
+  box-shadow:0 4px 16px rgba(0,0,0,.5);
+}
+.mode-btn {
+  padding:5px 14px; border-radius:20px; font-size:11px; font-weight:600;
+  cursor:pointer; border:none; font-family:'Rubik',sans-serif;
+  color:#6b7280; background:transparent; transition:all .2s;
+}
+.mode-btn:hover { color:#d1d5db; }
+.mode-btn.on { background:#2563eb; color:#fff; }
+.mode-btn.on.move { background:#10b981; }
+.mode-btn.on.stop { background:#f59e0b; color:#000; }
+
+/* custom markers */
+.emp-pin {
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%; width:26px; height:26px;
+  font-size:9px; font-weight:700; color:#fff; font-family:'Rubik',sans-serif;
+  box-shadow:0 2px 8px rgba(0,0,0,.55), 0 0 0 2px rgba(255,255,255,.85);
+  cursor:pointer; transition:transform .1s;
+}
+.emp-pin:hover { transform:scale(1.15); }
+
+.stop-pin-wrap {
+  display:flex; flex-direction:column; align-items:center; cursor:pointer;
+}
+.stop-pin {
+  width:32px; height:32px; border-radius:50%;
+  background:#f59e0b; display:flex; align-items:center; justify-content:center;
+  font-size:13px; font-weight:700; color:#000;
+  box-shadow:0 2px 10px rgba(0,0,0,.6), 0 0 0 2px rgba(245,158,11,.5);
+  transition:transform .1s;
+}
+.stop-pin:hover { transform:scale(1.1); }
+.stop-pin-label {
+  margin-top:2px; font-size:9px; font-weight:600; color:#f59e0b;
+  background:rgba(13,15,20,.85); padding:1px 5px; border-radius:4px;
+  white-space:nowrap; max-width:100px; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* popup styles */
+.leaflet-popup-content-wrapper {
+  background:#0f1117; border:1px solid #1f2330;
+  border-radius:10px; box-shadow:0 6px 24px rgba(0,0,0,.5);
+}
+.leaflet-popup-content { margin:12px 14px; }
+.leaflet-popup-tip-container { display:none; }
+.leaflet-popup-close-button { color:#4b5563!important; top:8px!important; right:10px!important; font-size:16px!important; }
+
+.pop-id   { font-size:10px; color:#374151; margin-bottom:3px; }
+.pop-name { font-size:13px; font-weight:700; color:#e2e8f0; margin-bottom:4px; line-height:1.3; }
+.pop-pos  { font-size:11px; color:#6b7280; margin-bottom:4px; }
+.pop-addr { font-size:11px; color:#9ca3af; margin-bottom:6px; }
+.pop-chip {
+  display:inline-flex; align-items:center; gap:4px;
+  padding:3px 9px; border-radius:12px; font-size:10px; font-weight:600;
+  margin-bottom:8px;
+}
+.pop-assign-row {
+  display:flex; align-items:center; gap:6px; margin-top:6px;
+  border-top:1px solid #1f2330; padding-top:8px;
+}
+.pop-assign-label { font-size:10px; color:#6b7280; flex-shrink:0; }
+.pop-assign-sel {
+  flex:1; background:#1a1d27; border:1px solid #2a2f3d; border-radius:5px;
+  padding:4px 6px; font-size:11px; color:#e2e8f0; font-family:'Rubik',sans-serif;
+  outline:none;
+}
+.pop-assign-btn {
+  padding:4px 10px; background:#2563eb; border:none; border-radius:5px;
+  font-size:10px; color:#fff; font-family:'Rubik',sans-serif;
+  cursor:pointer; transition:opacity .15s;
+}
+.pop-assign-btn:hover { opacity:.8; }
+
+/* stop popup */
+.sp-header { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.sp-badge { width:28px; height:28px; border-radius:50%; background:#f59e0b; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#000; flex-shrink:0; }
+.sp-title { font-size:14px; font-weight:700; color:#e2e8f0; }
+.sp-fields { display:flex; gap:6px; margin-bottom:10px; }
+.sp-input {
+  flex:1; background:#1a1d27; border:1px solid #2a2f3d; border-radius:6px;
+  padding:5px 8px; font-size:11px; color:#e2e8f0; font-family:'Rubik',sans-serif; outline:none;
+}
+.sp-input:focus { border-color:#f59e0b; }
+.sp-save-btn {
+  padding:5px 12px; background:#f59e0b; border:none; border-radius:6px;
+  font-size:11px; font-weight:600; color:#000; font-family:'Rubik',sans-serif;
+  cursor:pointer; white-space:nowrap;
+}
+.sp-save-btn:hover { background:#d97706; }
+.sp-section { font-size:10px; font-weight:700; color:#4b5563; letter-spacing:.5px; text-transform:uppercase; margin-bottom:6px; }
+.sp-search {
+  width:100%; background:#1a1d27; border:1px solid #2a2f3d; border-radius:6px;
+  padding:5px 8px; font-size:11px; color:#e2e8f0; font-family:'Rubik',sans-serif;
+  outline:none; margin-bottom:7px;
+}
+.sp-search:focus { border-color:#f59e0b; }
+.sp-checklist { max-height:160px; overflow-y:auto; }
+.sp-checklist::-webkit-scrollbar { width:3px; }
+.sp-checklist::-webkit-scrollbar-thumb { background:#2a2f3d; border-radius:2px; }
+.sp-check-row {
+  display:flex; align-items:center; gap:7px; padding:4px 0;
+  border-bottom:1px solid #1a1d27; font-size:11px; color:#d1d5db;
+}
+.sp-check-row input[type=checkbox] { accent-color:#f59e0b; cursor:pointer; }
+.sp-check-row span { flex:1; }
+.sp-check-conflict { font-size:9px; color:#6b7280; white-space:nowrap; }
+.sp-actions { display:flex; gap:6px; margin-top:8px; }
+.sp-action-btn {
+  flex:1; padding:5px; font-size:10px; font-family:'Rubik',sans-serif;
+  border-radius:6px; cursor:pointer; border:1px solid; text-align:center;
+  transition:opacity .15s;
+}
+.sp-action-btn:hover { opacity:.8; }
+.sp-auto { background:#10b98122; border-color:#10b98144; color:#10b981; }
+.sp-clear{ background:#ef444422; border-color:#ef444444; color:#ef4444; }
+
+/* PT toggle button */
+.mode-btn.pt { }
+.mode-btn.pt.on { background:#0ea5e9; color:#fff; }
+
+/* PT stop marker */
+.pt-pin {
+  width:14px; height:14px; border-radius:3px;
+  background:#0ea5e9; border:2px solid #fff;
+  box-shadow:0 1px 5px rgba(0,0,0,.6);
+  cursor:pointer; transition:transform .1s;
+  display:flex; align-items:center; justify-content:center;
+}
+.pt-pin:hover { transform:scale(1.4); }
+.pt-pin.used { background:#f59e0b; border-color:#fff; } /* уже используется в маршруте */
+
+/* PT popup */
+.ptp-name { font-size:12px; font-weight:700; color:#e2e8f0; margin-bottom:4px; }
+.ptp-meta { font-size:10px; color:#6b7280; margin-bottom:8px; }
+.ptp-use-btn {
+  width:100%; padding:6px; background:#0ea5e9; border:none; border-radius:6px;
+  font-size:11px; font-weight:600; color:#fff; font-family:'Rubik',sans-serif;
+  cursor:pointer; transition:opacity .15s;
+}
+.ptp-use-btn:hover { opacity:.8; }
+.ptp-note { font-size:9px; color:#4b5563; margin-top:5px; text-align:center; }
+
+/* walk circle style */
+.walk-circle { stroke:#f59e0b; stroke-width:1; stroke-dasharray:5,4; fill:#f59e0b; fill-opacity:.04; }
+
+/* route line */
+.route-line { stroke:#3b82f6; stroke-width:4; fill:none; stroke-opacity:.85; }
+
+/* ── ROUTE SELECTOR ── */
+#route-selector {
+  display:flex; align-items:center; gap:4px;
+  padding:7px 18px; background:#0a0c10; border-bottom:1px solid #1f2330;
+  overflow-x:auto; flex-shrink:0;
+}
+#route-selector::-webkit-scrollbar { height:2px; }
+#route-selector::-webkit-scrollbar-thumb { background:#2a2f3d; border-radius:2px; }
+
+.route-tab {
+  display:flex; align-items:center; gap:5px;
+  padding:4px 10px; border-radius:14px; cursor:pointer;
+  font-size:11px; font-weight:600; white-space:nowrap;
+  border:1px solid transparent; transition:all .15s;
+  color:#6b7280; background:#1a1d27;
+}
+.route-tab:hover { color:#d1d5db; background:#22263a; }
+.route-tab.active { color:#fff; border-color:transparent; }
+.route-tab-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.route-tab-del {
+  margin-left:2px; width:14px; height:14px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  font-size:10px; color:rgba(255,255,255,.5); cursor:pointer;
+  transition:all .15s;
+}
+.route-tab-del:hover { background:rgba(255,255,255,.2); color:#fff; }
+#add-route-btn {
+  padding:4px 9px; border-radius:14px; font-size:13px; font-weight:700;
+  background:#1a1d27; border:1px dashed #2a2f3d; color:#4b5563;
+  cursor:pointer; transition:all .15s; flex-shrink:0; font-family:'Rubik',sans-serif;
+}
+#add-route-btn:hover { border-color:#3b4a6e; color:#9ca3af; background:#22263a; }
+
+/* light theme route selector */
+body.light #route-selector { background:#f1f5f9; border-bottom-color:#dde3ea; }
+body.light .route-tab { background:#ffffff; color:#64748b; border-color:#e2e8f0; }
+body.light .route-tab:hover { background:#f1f5f9; color:#1e293b; }
+body.light #add-route-btn { background:#ffffff; border-color:#cbd5e1; color:#94a3b8; }
+body.light #add-route-btn:hover { background:#f1f5f9; color:#475569; }
+
+/* ── THEME TOGGLE BUTTON ── */
+#theme-btn {
+  position:absolute; top:14px; right:18px;
+  background:none; border:none; cursor:pointer;
+  font-size:16px; line-height:1; padding:2px;
+  transition:transform .2s;
+}
+#theme-btn:hover { transform:scale(1.2); }
+
+/* ── LIGHT THEME OVERRIDES ── */
+body.light { background:#f0f4f8; }
+
+body.light #sidebar {
+  background:#f8fafc; border-right-color:#dde3ea;
+}
+body.light #header { background:#ffffff; border-bottom-color:#dde3ea; }
+body.light #header h1 { color:#1e293b; }
+body.light #header p  { color:#94a3b8; }
+
+body.light #prog-bar { background:#e2e8f0; }
+body.light #prog-text { color:#94a3b8; border-bottom-color:#dde3ea; }
+
+body.light #tabs { border-bottom-color:#dde3ea; }
+body.light .tab { color:#94a3b8; }
+body.light .tab.active { color:#2563eb; border-bottom-color:#2563eb; }
+body.light .tab:hover:not(.active) { color:#475569; }
+
+body.light #legend { background:#f1f5f9; border-bottom-color:#dde3ea; }
+body.light .leg { color:#64748b; }
+
+body.light #filter-wrap { border-bottom-color:#dde3ea; }
+body.light #search-emp {
+  background:#ffffff; border-color:#cbd5e1; color:#1e293b;
+}
+body.light #search-emp::placeholder { color:#94a3b8; }
+body.light #search-emp:focus { border-color:#2563eb; }
+body.light #fit-btn {
+  background:#ffffff; border-color:#cbd5e1; color:#64748b;
+}
+body.light #fit-btn:hover { background:#f1f5f9; color:#1e293b; border-color:#94a3b8; }
+
+body.light .panel::-webkit-scrollbar-thumb { background:#dde3ea; }
+
+body.light .emp-item:hover { background:#f1f5f9; }
+body.light .emp-item.active { background:#eff6ff; border-left-color:#2563eb; }
+body.light .emp-num  { color:#94a3b8; }
+body.light .emp-name { color:#1e293b; }
+body.light .emp-spin { color:#94a3b8; }
+body.light .emp-addr { color:#64748b; }
+body.light .emp-trans{ color:#94a3b8; }
+body.light .emp-retry-btn {
+  background:#f1f5f9; border-color:#cbd5e1; color:#2563eb;
+}
+body.light .emp-retry-btn:hover { background:#dbeafe; }
+
+body.light #stops-list::-webkit-scrollbar-thumb { background:#dde3ea; }
+body.light .stop-item { border-bottom-color:#f1f5f9; }
+body.light .stop-item:hover { background:#f1f5f9; }
+body.light .stop-item.active { background:#fffbeb; border-left-color:#f59e0b; }
+body.light .stop-name { color:#1e293b; }
+body.light .stop-btn-up, body.light .stop-btn-down {
+  background:#f1f5f9; border-color:#dde3ea; color:#64748b;
+}
+body.light .stop-btn-del { background:#fef2f2; border-color:#fecaca; }
+
+body.light #route-hint { color:#64748b; }
+body.light #route-hint b { color:#475569; }
+body.light #route-stats { background:#f8fafc; border-top-color:#dde3ea; color:#64748b; }
+body.light #route-stats span { color:#475569; }
+body.light #clear-route-btn {
+  background:#fef2f2; border-color:#fecaca; color:#ef4444;
+}
+body.light #clear-route-btn:hover { background:#fee2e2; }
+
+body.light #radius-panel { background:#f1f5f9; border-bottom-color:#dde3ea; }
+body.light #radius-panel label { color:#64748b; }
+body.light #radius-input {
+  background:#ffffff; border-color:#cbd5e1; color:#1e293b;
+}
+body.light #radius-input:focus { border-color:#2563eb; }
+body.light #radius-unit { color:#94a3b8; }
+body.light .radius-preset {
+  background:#ffffff; border-color:#cbd5e1; color:#64748b;
+}
+body.light .radius-preset.active { background:#dbeafe; border-color:#93c5fd; color:#2563eb; }
+
+body.light #io-bar { background:#f1f5f9; border-bottom-color:#dde3ea; }
+
+body.light #mode-bar {
+  background:rgba(255,255,255,0.95); border-color:#dde3ea;
+  box-shadow:0 4px 16px rgba(0,0,0,.12);
+}
+body.light .mode-btn { color:#64748b; }
+body.light .mode-btn:hover { color:#1e293b; }
+
+/* popup light */
+body.light .leaflet-popup-content-wrapper {
+  background:#ffffff; border-color:#dde3ea;
+  box-shadow:0 6px 24px rgba(0,0,0,.15);
+}
+body.light .leaflet-popup-close-button { color:#94a3b8!important; }
+body.light .pop-id   { color:#94a3b8; }
+body.light .pop-name { color:#1e293b; }
+body.light .pop-pos  { color:#64748b; }
+body.light .pop-addr { color:#475569; }
+body.light .pop-assign-row { border-top-color:#e2e8f0; }
+body.light .pop-assign-label { color:#64748b; }
+body.light .pop-assign-sel {
+  background:#f8fafc; border-color:#cbd5e1; color:#1e293b;
+}
+
+body.light .sp-title { color:#1e293b; }
+body.light .sp-input {
+  background:#f8fafc; border-color:#cbd5e1; color:#1e293b;
+}
+body.light .sp-input:focus { border-color:#f59e0b; }
+body.light .sp-section { color:#94a3b8; }
+body.light .sp-search {
+  background:#f8fafc; border-color:#cbd5e1; color:#1e293b;
+}
+body.light .sp-checklist::-webkit-scrollbar-thumb { background:#cbd5e1; }
+body.light .sp-check-row {
+  border-bottom-color:#f1f5f9; color:#1e293b;
+}
+body.light .sp-check-conflict { color:#94a3b8; }
+body.light .ptp-name { color:#1e293b; }
+body.light .ptp-meta { color:#64748b; }
+body.light .ptp-note { color:#94a3b8; }
+
+/* stop pin label light */
+body.light .stop-pin-label {
+  color:#b45309; background:rgba(255,255,255,.9);
+}
+
+/* modal light */
+body.light #add-emp-box {
+  background:#ffffff; border-color:#dde3ea;
+  box-shadow:0 8px 32px rgba(0,0,0,.15);
+}
+body.light #add-emp-box h3 { color:#1e293b; }
+body.light .aem-label { color:#64748b; }
+body.light .aem-input {
+  background:#f8fafc; border-color:#cbd5e1; color:#1e293b;
+}
+body.light .aem-cancel {
+  background:#f8fafc; border-color:#cbd5e1; color:#64748b;
+}
+body.light #aem-geo-status { color:#64748b; }
+
+/* toast light */
+body.light #toast {
+  background:#ffffff; border-color:#dde3ea;
+  box-shadow:0 4px 16px rgba(0,0,0,.15);
+}
+
+/* ── SAVE / LOAD BAR ── */
+#io-bar {
+  display:flex; gap:5px; padding:8px 18px;
+  background:#0a0c10; border-bottom:1px solid #1f2330;
+}
+.io-btn {
+  flex:1; display:flex; align-items:center; justify-content:center; gap:5px;
+  padding:6px 8px; border-radius:7px; font-size:11px; font-weight:600;
+  font-family:'Rubik',sans-serif; cursor:pointer; border:1px solid;
+  transition:all .15s; white-space:nowrap;
+}
+.io-save { background:#10b98118; border-color:#10b98144; color:#10b981; }
+.io-save:hover { background:#10b98130; }
+.io-load { background:#2563eb18; border-color:#2563eb44; color:#60a5fa; }
+.io-load:hover { background:#2563eb30; }
+.io-add  { background:#f59e0b18; border-color:#f59e0b44; color:#f59e0b; }
+.io-add:hover { background:#f59e0b30; }
+
+/* toast */
+#toast {
+  position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+  background:#0f1117; border:1px solid #1f2330; border-radius:20px;
+  padding:8px 18px; font-size:11px; color:#10b981;
+  z-index:9999; pointer-events:none;
+  opacity:0; transition:opacity .3s;
+  box-shadow:0 4px 16px rgba(0,0,0,.5);
+}
+#toast.show { opacity:1; }
+
+/* add-emp modal */
+#add-emp-modal {
+  display:none; position:fixed; inset:0; z-index:5000;
+  background:rgba(0,0,0,.6); align-items:center; justify-content:center;
+}
+#add-emp-modal.open { display:flex; }
+#add-emp-box {
+  background:#0f1117; border:1px solid #1f2330; border-radius:12px;
+  padding:22px; width:360px; box-shadow:0 8px 32px rgba(0,0,0,.6);
+}
+#add-emp-box h3 { font-size:14px; color:#e2e8f0; margin-bottom:14px; }
+.aem-row { margin-bottom:10px; }
+.aem-label { font-size:10px; color:#6b7280; margin-bottom:4px; }
+.aem-input {
+  width:100%; background:#1a1d27; border:1px solid #2a2f3d; border-radius:7px;
+  padding:7px 10px; font-size:12px; color:#e2e8f0; font-family:'Rubik',sans-serif;
+  outline:none;
+}
+.aem-input:focus { border-color:#f59e0b; }
+.aem-btns { display:flex; gap:8px; margin-top:14px; }
+.aem-cancel {
+  flex:1; padding:8px; background:#1a1d27; border:1px solid #2a2f3d;
+  border-radius:7px; color:#6b7280; font-family:'Rubik',sans-serif;
+  font-size:12px; cursor:pointer;
+}
+.aem-submit {
+  flex:2; padding:8px; background:#f59e0b; border:none;
+  border-radius:7px; color:#000; font-family:'Rubik',sans-serif;
+  font-size:12px; font-weight:700; cursor:pointer;
+}
+.aem-submit:hover { background:#d97706; }
+#aem-geo-status { font-size:10px; color:#4b5563; margin-top:6px; min-height:16px; }
+
+/* retry button on not-found employees */
+.emp-retry-btn {
+  margin-left:auto; font-size:9px; padding:2px 7px;
+  background:#1a1d27; border:1px solid #2a2f3d; border-radius:10px;
+  color:#60a5fa; cursor:pointer; font-family:'Rubik',sans-serif;
+  transition:all .15s; white-space:nowrap; flex-shrink:0;
+}
+.emp-retry-btn:hover { background:#22263a; border-color:#3b4a6e; }
+.emp-retry-btn.spinning { color:#4b5563; pointer-events:none; }
+
+/* radius control panel */
+#radius-panel {
+  padding:9px 18px; background:#0a0c10; border-bottom:1px solid #1f2330;
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+}
+#radius-panel label { font-size:10px; color:#6b7280; white-space:nowrap; flex-shrink:0; }
+#radius-toggle {
+  width:28px; height:16px; border-radius:8px; border:none; cursor:pointer;
+  transition:background .2s; flex-shrink:0; position:relative;
+  background:#2563eb;
+}
+#radius-toggle::after {
+  content:''; position:absolute; width:12px; height:12px; border-radius:50%;
+  background:#fff; top:2px; left:2px; transition:transform .2s;
+}
+#radius-toggle.off { background:#2a2f3d; }
+#radius-toggle.off::after { transform:translateX(0); }
+#radius-toggle:not(.off)::after { transform:translateX(12px); }
+#radius-input {
+  width:65px; background:#1a1d27; border:1px solid #2a2f3d; border-radius:6px;
+  padding:4px 7px; font-size:11px; color:#e2e8f0; font-family:'Rubik',sans-serif;
+  outline:none; text-align:center;
+}
+#radius-input:focus { border-color:#2563eb; }
+#radius-unit { font-size:10px; color:#4b5563; }
+.radius-preset {
+  font-size:9px; padding:2px 7px; border-radius:10px;
+  background:#1a1d27; border:1px solid #2a2f3d; color:#6b7280;
+  cursor:pointer; font-family:'Rubik',sans-serif; transition:all .15s;
+}
+.radius-preset:hover { border-color:#3b4a6e; color:#9ca3af; }
+.radius-preset.active { background:#1e3a5f; border-color:#2563eb; color:#60a5fa; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="header" style="position:relative">
+    <h1>🗺 Карта и маршрут — Вологда</h1>
+    <p id="mode-hint">Режим просмотра · Нажмите на сотрудника или остановку</p>
+    <button id="theme-btn" onclick="toggleTheme()" title="Сменить тему">🌙</button>
+  </div>
+
+  <!-- SAVE / LOAD / ADD -->
+  <div id="io-bar">
+    <button class="io-btn io-save" onclick="exportState()">💾 Сохранить</button>
+    <button class="io-btn io-load" onclick="document.getElementById('import-input').click()">📂 Загрузить</button>
+    <button class="io-btn io-add"  onclick="openAddEmpModal()">+ Сотрудник</button>
+    <button class="io-btn" style="background:#7c3aed18;border-color:#7c3aed44;color:#a78bfa" onclick="exportPDF()">📄 PDF</button>
+    <input id="import-input" type="file" accept=".json" style="display:none" onchange="importState(event)">
+  </div>
+
+  <div>
+    <div id="prog-bar"><div id="prog-fill"></div></div>
+    <div id="prog-text">
+      <span id="prog-label">Геокодирование...</span>
+      <span id="prog-count">0 / 44</span>
+    </div>
+  </div>
+
+  <div id="tabs">
+    <div class="tab active" id="tab-emp" onclick="switchTab('emp')">👥 Сотрудники</div>
+    <div class="tab" id="tab-route" onclick="switchTab('route')">🚌 Маршрут</div>
+  </div>
+
+  <!-- EMPLOYEES TAB -->
+  <div id="emp-tab" class="panel active">
+    <div id="legend">
+      <div class="leg"><div class="leg-dot" style="background:#3b82f6"></div>Автобус</div>
+      <div class="leg"><div class="leg-dot" style="background:#22c55e"></div>Личн. авто</div>
+      <div class="leg"><div class="leg-dot" style="background:#f59e0b"></div>Такси</div>
+      <div class="leg"><div class="leg-dot" style="background:#a855f7"></div>Пешком</div>
+      <div class="leg"><div class="leg-dot" style="background:#f43f5e"></div>Попутка</div>
+      <div class="leg"><div class="leg-dot" style="background:#14b8a6"></div>Велосипед</div>
+      <div class="leg"><div class="leg-dot" style="background:#6b7280"></div>Другое</div>
+    </div>
+    <div id="filter-wrap">
+      <input id="search-emp" type="text" placeholder="🔍 Поиск сотрудника..." oninput="renderEmpList()">
+      <button id="fit-btn" onclick="fitAll()">⛶ Все</button>
+    </div>
+    <div id="emp-list"></div>
+  </div>
+
+  <!-- ROUTE TAB -->
+  <div id="route-tab" class="panel">
+
+    <!-- Route selector -->
+    <div id="route-selector">
+      <!-- rendered by renderRouteSelector() -->
+    </div>
+
+    <!-- Radius control -->
+    <div id="radius-panel">
+      <label>🔵 Пешая доступность:</label>
+      <button id="radius-toggle" onclick="toggleWalkCircles()" title="Вкл/Выкл зоны"></button>
+      <input id="radius-input" type="number" value="1300" min="100" max="5000" step="100"
+             onchange="setWalkRadius(+this.value)" onkeydown="if(event.key==='Enter')setWalkRadius(+this.value)">
+      <span id="radius-unit">м</span>
+      <button class="radius-preset active" data-r="650"  onclick="applyPreset(this,650)">10 мин</button>
+      <button class="radius-preset active" data-r="1300" onclick="applyPreset(this,1300)">20 мин</button>
+      <button class="radius-preset"        data-r="1950" onclick="applyPreset(this,1950)">30 мин</button>
+    </div>
+
+    <div id="route-hint">
+      <b>Как создать маршрут:</b><br>
+      1. Нажмите кнопку <b>«+ Остановка»</b> вверху карты<br>
+      2. Кликните по карте — появится остановка<br>
+      3. В попапе задайте название, время и привяжите сотрудников<br>
+      4. Перетащите остановки для изменения позиции<br>
+      5. Используйте ↑↓ для изменения порядка
+    </div>
+    <div id="stops-list"></div>
+    <div id="route-stats" style="display:none">
+      <span>Остановок: <span id="stat-stops">0</span></span>
+      <span>Охвачено: <span id="stat-emps">0</span> чел.</span>
+    </div>
+    <button id="clear-route-btn" style="display:none" onclick="clearRoute()">🗑 Очистить маршрут</button>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div id="toast"></div>
+
+<!-- Add employee modal -->
+<div id="add-emp-modal">
+  <div id="add-emp-box">
+    <h3>➕ Добавить сотрудника</h3>
+    <div class="aem-row">
+      <div class="aem-label">ФИО *</div>
+      <input class="aem-input" id="aem-name" placeholder="Иванов Иван Иванович">
+    </div>
+    <div class="aem-row">
+      <div class="aem-label">Должность</div>
+      <input class="aem-input" id="aem-pos" placeholder="Упаковщик">
+    </div>
+    <div class="aem-row">
+      <div class="aem-label">Адрес проживания *</div>
+      <input class="aem-input" id="aem-addr" placeholder="ул. Горького 56">
+    </div>
+    <div class="aem-row">
+      <div class="aem-label">Транспорт</div>
+      <input class="aem-input" id="aem-tr" placeholder="Автобус">
+    </div>
+    <div id="aem-geo-status"></div>
+    <div class="aem-btns">
+      <button class="aem-cancel" onclick="closeAddEmpModal()">Отмена</button>
+      <button class="aem-submit" onclick="addEmployeeManual()">Геокодировать и добавить</button>
+    </div>
+  </div>
+</div>
+
+<div id="map-wrap">
+  <div id="map"></div>
+
+  <!-- Mode toolbar -->
+  <div id="mode-bar">
+    <button class="mode-btn on"  id="btn-view" onclick="setMode('view')">👁 Вид</button>
+    <button class="mode-btn move" id="btn-move" onclick="setMode('move')">✥ Двигать</button>
+    <button class="mode-btn stop" id="btn-stop" onclick="setMode('add_stop')">+ Остановка</button>
+    <button class="mode-btn pt"   id="btn-pt"   onclick="togglePTStops()">🚏 ОТ</button>
+  </div>
+
+  <!-- PT loading indicator -->
+  <div id="pt-loading" style="display:none;position:absolute;top:55px;left:50%;transform:translateX(-50%);
+    background:rgba(13,15,20,.92);border:1px solid #1f2330;border-radius:20px;
+    padding:6px 16px;font-size:11px;color:#60a5fa;z-index:800;white-space:nowrap;
+    box-shadow:0 4px 16px rgba(0,0,0,.5);">
+    ⏳ Загрузка остановок ОТ…
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════
+const EMP = [
+  {id:1,  name:"Удина Виктория",          pos:"Менеджер по планированию производства", addr:"К. Маркса 121",                 tr:"Автобус"},
+  {id:2,  name:"Немиров Александр",        pos:"Начальник склада",                       addr:"Дальняя 18Б",                    tr:"Пешком, автобус"},
+  {id:3,  name:"Князева Галина",           pos:"Бригадир (ЗФП, Масло)",                  addr:"Возрождения 82А",                 tr:"Велосипед, пешком"},
+  {id:4,  name:"Левченко Виктория",        pos:"Рук. производственного участка",         addr:"Горького 116",                   tr:"Автобус, такси"},
+  {id:5,  name:"Лапина Евгения",           pos:"Упаковщик (отд. косметики)",             addr:"Горького 95",                    tr:"Автобус"},
+  {id:6,  name:"Белова Ирина",             pos:"Упаковщик (отд. косметики)",             addr:"Молодежная 31к4",                tr:"Личный автомобиль"},
+  {id:7,  name:"Шумаев Роман",             pos:"Грузчик (отд. косметики)",               addr:"Окружное шоссе 26",              tr:"Пешком"},
+  {id:8,  name:"Крутов Алексей",           pos:"Комплектовщик (отд. косметики)",         addr:"Пугачева 3",                     tr:"Автобус"},
+  {id:9,  name:"Массалов Михаил",          pos:"Руководитель производства",              addr:"6-я Садовая 23",                 tr:"Личный автомобиль"},
+  {id:10, name:"Нестеров Дмитрий",         pos:"Специалист по развитию",                 addr:"Возрождения 35",                 tr:"Личный автомобиль"},
+  {id:11, name:"Собанина Елизавета",       pos:"Лаборант",                               addr:"Возрождения 51",                 tr:"Такси"},
+  {id:12, name:"Кондратенко Максим",       pos:"Упаковщик 2 разряд",                     addr:"Белозерское шоссе",              tr:"Попутка, такси"},
+  {id:13, name:"Капустина Евгения",        pos:"Упаковщик (отд. косметики)",             addr:"Возрождения 82А",                tr:"Пешком"},
+  {id:14, name:"Образцова Наталья",        pos:"Упаковщик 2 разряд",                     addr:"Вологодская 8",                  tr:"Попутка"},
+  {id:15, name:"Быкова Елена",             pos:"Упаковщик 2 разряд",                     addr:"Гоголя 72",                      tr:"Автобус, попутка"},
+  {id:16, name:"Бритвина Галина",          pos:"Упаковщик 2 разряд",                     addr:"Городской Вал 11",               tr:"Автобус"},
+  {id:17, name:"Красова Анна",             pos:"Упаковщик (отд. косметики)",             addr:"Горького 56",                    tr:"Такси"},
+  {id:18, name:"Красов Даниил",            pos:"Бригадир",                               addr:"Горького 56",                    tr:"Пешком, попутка"},
+  {id:19, name:"Иванов Владимир",          pos:"Комплектовщик",                          addr:"Добролюбова 52",                 tr:"Пешком, автобус"},
+  {id:20, name:"Жданов Михаил",            pos:"Упаковщик 2 разряд",                     addr:"К. Маркса 3А",                   tr:"Автобус"},
+  {id:21, name:"Кондратенко Александр",    pos:"Упаковщик (отд. косметики)",             addr:"Комсомольская 4",                tr:"Автобус"},
+  {id:22, name:"Иванов Кирилл",            pos:"Упаковщик (отд. косметики)",             addr:"Костромская 4",                  tr:"Автобус"},
+  {id:23, name:"Совершаева Анастасия",     pos:"Бригадир (отд. косметики)",              addr:"Кубинская 13",                   tr:"Такси"},
+  {id:24, name:"Фомина Ольга",             pos:"Упаковщик 1 разряд",                     addr:"Лаврова 9",                      tr:"Автобус"},
+  {id:25, name:"Соколова Юлия",            pos:"Ст. упаковщик (отд. косметики)",         addr:"Ленинградская 87",               tr:"Пешком, такси"},
+  {id:26, name:"Козак Евгений",            pos:"Аппаратчик",                             addr:"Луначарского 12",                tr:"Личный автомобиль"},
+  {id:27, name:"Лисенков Алексей",         pos:"Комплектовщик",                          addr:"Михаила Поповича 18А",           tr:"Автобус, иногда авто"},
+  {id:28, name:"Коробов Роман",            pos:"Комплектовщик",                          addr:"Молодежная 20Б",                 tr:"Личный автомобиль"},
+  {id:29, name:"Беляв Александр",          pos:"Упаковщик 1 разряд",                     addr:"Некрасова 47",                   tr:"Личный автомобиль"},
+  {id:30, name:"Ерегина Елена",            pos:"Упаковщик 2 разряд",                     addr:"Некрасова 48",                   tr:"Автобус"},
+  {id:31, name:"Туркина Снежана",          pos:"Упаковщик 2 разряд",                     addr:"Новгородская 1",                 tr:"Автобус"},
+  {id:32, name:"Наговицина Елена",         pos:"Упаковщик (отд. косметики)",             addr:"посёлок Михалево 40",            tr:"Попутка"},
+  {id:33, name:"Собанина Нина",            pos:"Бригадир (отд. косметики)",              addr:"посёлок Надеево, Центральная 7", tr:"Попутка"},
+  {id:34, name:"Романов Кирилл",           pos:"Аппаратчик",                             addr:"посёлок Сосновка",               tr:"—"},
+  {id:35, name:"Надеев Александр",         pos:"Мастер смены",                           addr:"посёлок Сосновка",               tr:"Личный автомобиль"},
+  {id:36, name:"Андреева Полина",          pos:"Упаковщик (отд. косметики)",             addr:"Пошехонское шоссе 42",           tr:"Пешком"},
+  {id:37, name:"Прокопенко Павел",         pos:"Упаковщик 1 разряд",                     addr:"Псковская 12Б",                  tr:"Автобус, попутка"},
+  {id:38, name:"Матюшина Татьяна",         pos:"Упаковщик 2 разряд",                     addr:"Пугачева 38",                    tr:"Личный автомобиль"},
+  {id:39, name:"Виноградова Ксения",       pos:"Бригадир",                               addr:"Разина 41",                      tr:"Личный автомобиль"},
+  {id:40, name:"Чекрыгин Антон",           pos:"Комплектовщик",                          addr:"Разина 55",                      tr:"Автобус"},
+  {id:41, name:"Куликов Антон",            pos:"Упаковщик 2 разряд",                     addr:"Северная 36В",                   tr:"Личный автомобиль"},
+  {id:42, name:"Котов Александр",          pos:"Упаковщик 2 разряд",                     addr:"Фрязиновская 27",                tr:"Личный автомобиль"},
+  {id:43, name:"Хаймин Александр",         pos:"Кладовщик",                              addr:"Чернышевского 116А",             tr:"На 2 автобусах"},
+  {id:44, name:"Косарева Анастасия",       pos:"Упаковщик 1 разряд",                     addr:"Чернышевского 12Б",              tr:"Такси, пешком"}
+];
+
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+let mode = 'view';
+let walkCircles = [];
+let empOverrides = {};
+let empIdSeq   = 100;
+let walkRadius  = 1300;
+let walkVisible = true;
+
+// ── MULTI-ROUTE STATE ──
+const ROUTE_COLORS = ['#3b82f6','#10b981','#a855f7','#f97316','#ef4444','#06b6d4','#ec4899'];
+let routeMetaSeq  = 2;
+let activeRouteId = 1;
+// ROUTES_LIST[i] = { id, name, colorIdx }
+let ROUTES_LIST = [{ id:1, name:'Маршрут 1', colorIdx:0 }];
+// savedRouteData[id] = { stops:[{id,lat,lng,name,time,assignedEmps}], stopIdSeq }
+const savedRouteData = {};
+
+// "Active-route" globals — represent the currently visible route
+let STOPS     = [];       // { id, lat, lng, name, time, marker, circle, assignedEmps:[] }
+let stopIdSeq = 1;
+let routeLine = null;
+
+function activeRouteColor() {
+  const r = ROUTES_LIST.find(r => r.id === activeRouteId);
+  return r ? ROUTE_COLORS[r.colorIdx % ROUTE_COLORS.length] : '#3b82f6';
+}
+
+// ══════════════════════════════════════════
+// MAP INIT
+// ══════════════════════════════════════════
+const map = L.map('map', { center:[59.2239,39.8845], zoom:13, attributionControl:false });
+
+const TILES = {
+  dark:  'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+};
+let tileLayer = L.tileLayer(TILES.dark, { maxZoom:19 }).addTo(map);
+let isLight = false;
+
+function toggleTheme() {
+  isLight = !isLight;
+  document.body.classList.toggle('light', isLight);
+  document.getElementById('theme-btn').textContent = isLight ? '🌑' : '🌙';
+  // Меняем тайл карты
+  map.removeLayer(tileLayer);
+  tileLayer = L.tileLayer(isLight ? TILES.light : TILES.dark, { maxZoom:19 }).addTo(map);
+  // Опускаем тайл вниз (чтобы маркеры были поверх)
+  tileLayer.bringToBack();
+  // Перекрашиваем круги пешей доступности текущего маршрута
+  STOPS.forEach(s => {
+    if (s.circle) s.circle.setStyle({ stroke:true });
+  });
+}
+
+map.on('click', e => {
+  if (mode === 'add_stop') createStop(e.latlng.lat, e.latlng.lng);
+});
+
+// ══════════════════════════════════════════
+// COLOR
+// ══════════════════════════════════════════
+function color(t) {
+  if (!t || t==='—') return '#6b7280';
+  const l = t.toLowerCase();
+  if (l.includes('велосипед'))                          return '#14b8a6';
+  if (l.includes('личный автомобиль') || l==='авто')    return '#22c55e';
+  if (l.includes('такси') && l.includes('автобус'))     return '#f59e0b';
+  if (l.includes('попутка') && l.includes('такси'))     return '#f43f5e';
+  if (l.includes('такси'))    return '#f59e0b';
+  if (l.includes('попутка'))  return '#f43f5e';
+  if (l.includes('автобус'))  return '#3b82f6';
+  if (l.includes('пешком'))   return '#a855f7';
+  return '#6b7280';
+}
+
+// ══════════════════════════════════════════
+// MODE
+// ══════════════════════════════════════════
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('on'));
+  const mapEl = document.getElementById('map');
+  mapEl.className = '';
+
+  if (m === 'view') {
+    document.getElementById('btn-view').classList.add('on');
+    document.getElementById('mode-hint').textContent = 'Режим просмотра · Нажмите на сотрудника или остановку';
+  } else if (m === 'move') {
+    document.getElementById('btn-move').classList.add('on');
+    document.getElementById('mode-hint').textContent = 'Режим перемещения · Тяните маркеры сотрудников';
+    mapEl.classList.add('mode-move');
+  } else if (m === 'add_stop') {
+    document.getElementById('btn-stop').classList.add('on');
+    document.getElementById('mode-hint').textContent = 'Режим остановок · Кликните по карте чтобы добавить остановку';
+    mapEl.classList.add('mode-add-stop');
+    switchTab('route');
+  }
+
+  // toggle employee marker dragging
+  EMP.forEach(e => {
+    if (!e.marker) return;
+    if (m === 'move') e.marker.dragging.enable();
+    else e.marker.dragging.disable();
+  });
+}
+
+// ══════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════
+function switchTab(t) {
+  document.getElementById('tab-emp').classList.toggle('active', t==='emp');
+  document.getElementById('tab-route').classList.toggle('active', t==='route');
+  document.getElementById('emp-tab').classList.toggle('active', t==='emp');
+  document.getElementById('route-tab').classList.toggle('active', t==='route');
+}
+
+// ══════════════════════════════════════════
+// EMPLOYEE MARKERS
+// ══════════════════════════════════════════
+function makeEmpIcon(e) {
+  const c = color(e.tr);
+  return L.divIcon({
+    html: `<div class="emp-pin" style="background:${c}">${e.id}</div>`,
+    className:'', iconSize:[26,26], iconAnchor:[13,13]
+  });
+}
+
+function addEmpMarker(e, lat, lng) {
+  const icon = makeEmpIcon(e);
+  const m = L.marker([lat,lng], { icon, draggable: mode==='move' }).addTo(map);
+  m.on('dragend', () => { /* position updates automatically */ });
+  m.bindPopup(() => buildEmpPopup(e), { maxWidth:280, closeButton:true });
+  m.on('click', () => {
+    document.querySelectorAll('.emp-item').forEach(el => el.classList.remove('active'));
+    const el = document.getElementById('ei-'+e.id);
+    if (el) { el.classList.add('active'); el.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
+  });
+  e.marker = m;
+  e.lat = lat; e.lng = lng;
+}
+
+function buildEmpPopup(e) {
+  const c = color(e.tr);
+  const assigned = getStopForEmp(e.id);
+  const stopOpts = STOPS.map(s =>
+    `<option value="${s.id}" ${assigned && assigned.id===s.id ? 'selected':''}>${s.name || 'Остановка '+s.id}</option>`
+  ).join('');
+  return `
+    <div class="pop-id">#${e.id}</div>
+    <div class="pop-name">${e.name}</div>
+    <div class="pop-pos">${e.pos}</div>
+    <div class="pop-addr">📍 ${e.addr}</div>
+    <span class="pop-chip" style="background:${c}22;color:${c};border:1px solid ${c}55">${e.tr==='—'?'Не указано':e.tr}</span>
+    ${STOPS.length > 0 ? `
+    <div class="pop-assign-row">
+      <span class="pop-assign-label">Остановка:</span>
+      <select class="pop-assign-sel" id="emp-stop-sel-${e.id}">
+        <option value="">— не назначено —</option>
+        ${stopOpts}
+      </select>
+      <button class="pop-assign-btn" onclick="assignEmpFromPopup(${e.id})">✓</button>
+    </div>
+    ${assigned ? `<div style="font-size:10px;color:#10b981;margin-top:5px">✓ На остановке: ${assigned.name || 'Остановка '+assigned.id}</div>` : ''}
+    ` : '<div style="font-size:10px;color:#4b5563;margin-top:6px">Сначала создайте остановки</div>'}
+  `;
+}
+
+function assignEmpFromPopup(empId) {
+  const sel = document.getElementById('emp-stop-sel-'+empId);
+  if (!sel) return;
+  const stopId = parseInt(sel.value);
+  // remove from all
+  STOPS.forEach(s => { s.assignedEmps = s.assignedEmps.filter(x=>x!==empId); });
+  if (stopId) {
+    const s = STOPS.find(x=>x.id===stopId);
+    if (s) s.assignedEmps.push(empId);
+  }
+  const e = EMP.find(x=>x.id===empId);
+  if (e && e.marker) { e.marker.closePopup(); e.marker.openPopup(); }
+  renderStopList();
+  renderRouteStats();
+}
+
+// ══════════════════════════════════════════
+// STOP SYSTEM
+// ══════════════════════════════════════════
+function getStopForEmp(empId) {
+  return STOPS.find(s => s.assignedEmps.includes(empId)) || null;
+}
+
+function createStop(lat, lng) {
+  const id = stopIdSeq++;
+  const s = { id, lat, lng, name:'Остановка '+id, time:'', marker:null, circle:null, assignedEmps:[] };
+  STOPS.push(s);
+  placeStopMarker(s);
+  renderStopList();
+  renderRouteStats();
+  updateRoute();
+  // open popup immediately
+  setTimeout(() => s.marker && s.marker.openPopup(), 100);
+  // show route hint or not
+  document.getElementById('route-hint').style.display = 'none';
+  document.getElementById('route-stats').style.display = 'flex';
+  document.getElementById('clear-route-btn').style.display = 'block';
+}
+
+function placeStopMarker(s) {
+  const idx = STOPS.indexOf(s) + 1;
+  const icon = L.divIcon({
+    html: `<div class="stop-pin-wrap">
+      <div class="stop-pin">${idx}</div>
+      <div class="stop-pin-label">${s.name}</div>
+    </div>`,
+    className:'', iconSize:[32,50], iconAnchor:[16,16]
+  });
+  const m = L.marker([s.lat, s.lng], { icon, draggable:true, zIndexOffset:500 }).addTo(map);
+  m.on('drag', ev => {
+    s.lat = ev.latlng.lat; s.lng = ev.latlng.lng;
+    if (s.circle) s.circle.setLatLng([s.lat, s.lng]);
+    updateRoute();
+  });
+  m.bindPopup(() => buildStopPopup(s.id), { maxWidth:300, closeButton:true, keepInView:true });
+  m.on('click', () => {
+    document.querySelectorAll('.stop-item').forEach(el => el.classList.remove('active'));
+    const el = document.getElementById('si-'+s.id);
+    if (el) el.classList.add('active');
+  });
+  s.marker = m;
+
+  // walk circle
+  const circle = L.circle([s.lat, s.lng], { radius:walkRadius, className:'walk-circle' }).addTo(map);
+  if (!walkVisible) circle.setStyle({ opacity:0, fillOpacity:0 });
+  s.circle = circle;
+}
+
+function refreshStopIcon(s) {
+  const idx = STOPS.indexOf(s) + 1;
+  if (!s.marker) return;
+  const icon = L.divIcon({
+    html: `<div class="stop-pin-wrap">
+      <div class="stop-pin">${idx}</div>
+      <div class="stop-pin-label">${s.name}</div>
+    </div>`,
+    className:'', iconSize:[32,50], iconAnchor:[16,16]
+  });
+  s.marker.setIcon(icon);
+}
+
+function refreshAllStopIcons() {
+  STOPS.forEach(s => refreshStopIcon(s));
+}
+
+function buildStopPopup(stopId) {
+  const s = STOPS.find(x=>x.id===stopId);
+  if (!s) return '';
+  const html = `
+    <div class="sp-header">
+      <div class="sp-badge">${STOPS.indexOf(s)+1}</div>
+      <div class="sp-title">Остановка</div>
+    </div>
+    <div class="sp-fields">
+      <input class="sp-input" id="sp-name-${stopId}" placeholder="Название" value="${s.name}" style="flex:2">
+      <input class="sp-input" id="sp-time-${stopId}" placeholder="Время" value="${s.time}" style="flex:1;max-width:70px">
+      <button class="sp-save-btn" onclick="saveStopDetails(${stopId})">✓</button>
+    </div>
+    <div class="sp-section">Сотрудники на остановке</div>
+    <input class="sp-search" id="sp-search-${stopId}" placeholder="🔍 Поиск..." oninput="filterStopAssign(${stopId})">
+    <div class="sp-checklist" id="sp-list-${stopId}">
+      ${buildChecklist(stopId, '')}
+    </div>
+    <div class="sp-actions">
+      <button class="sp-action-btn sp-auto" onclick="autoAssignStop(${stopId})">⚡ Авто (1300м)</button>
+      <button class="sp-action-btn sp-clear" onclick="clearStopAssign(${stopId})">✕ Очистить</button>
+    </div>
+  `;
+  return html;
+}
+
+function buildChecklist(stopId, q) {
+  const s = STOPS.find(x=>x.id===stopId);
+  if (!s) return '';
+  return EMP
+    .filter(e => e.marker && (!q || e.name.toLowerCase().includes(q.toLowerCase())))
+    .map(e => {
+      const checked = s.assignedEmps.includes(e.id);
+      const other = getStopForEmp(e.id);
+      const conflict = other && other.id !== stopId;
+      return `<div class="sp-check-row">
+        <input type="checkbox" onchange="toggleAssign(${e.id},${stopId},this.checked)" ${checked?'checked':''}>
+        <span>${e.id}. ${e.name}</span>
+        ${conflict ? `<span class="sp-check-conflict">↪ ${other.name||'Ост.'+other.id}</span>` : ''}
+      </div>`;
+    }).join('') || '<div style="font-size:10px;color:#4b5563;padding:6px 0">Не найдено</div>';
+}
+
+// Global functions accessible from popup HTML
+window.toggleAssign = function(empId, stopId, checked) {
+  // remove from all stops
+  STOPS.forEach(s => { s.assignedEmps = s.assignedEmps.filter(x=>x!==empId); });
+  if (checked) {
+    const s = STOPS.find(x=>x.id===stopId);
+    if (s) s.assignedEmps.push(empId);
+  }
+  renderStopList();
+  renderRouteStats();
+  // refresh checklist
+  const listEl = document.getElementById('sp-list-'+stopId);
+  if (listEl) {
+    const q = document.getElementById('sp-search-'+stopId)?.value || '';
+    listEl.innerHTML = buildChecklist(stopId, q);
+  }
+};
+
+window.filterStopAssign = function(stopId) {
+  const q = document.getElementById('sp-search-'+stopId)?.value || '';
+  const listEl = document.getElementById('sp-list-'+stopId);
+  if (listEl) listEl.innerHTML = buildChecklist(stopId, q);
+};
+
+window.saveStopDetails = function(stopId) {
+  const s = STOPS.find(x=>x.id===stopId);
+  if (!s) return;
+  s.name = document.getElementById('sp-name-'+stopId)?.value || s.name;
+  s.time = document.getElementById('sp-time-'+stopId)?.value || s.time;
+  refreshStopIcon(s);
+  renderStopList();
+  s.marker?.closePopup();
+};
+
+window.autoAssignStop = function(stopId) {
+  const s = STOPS.find(x=>x.id===stopId);
+  if (!s) return;
+  EMP.forEach(e => {
+    if (!e.marker || getStopForEmp(e.id)) return;
+    const d = map.distance([e.marker.getLatLng().lat, e.marker.getLatLng().lng], [s.lat, s.lng]);
+    if (d <= walkRadius) s.assignedEmps.push(e.id);
+  });
+  renderStopList();
+  renderRouteStats();
+  const listEl = document.getElementById('sp-list-'+stopId);
+  if (listEl) listEl.innerHTML = buildChecklist(stopId, '');
+};
+
+window.clearStopAssign = function(stopId) {
+  const s = STOPS.find(x=>x.id===stopId);
+  if (s) s.assignedEmps = [];
+  renderStopList();
+  renderRouteStats();
+  const listEl = document.getElementById('sp-list-'+stopId);
+  if (listEl) listEl.innerHTML = buildChecklist(stopId, '');
+};
+
+function deleteStop(stopId) {
+  const s = STOPS.find(x=>x.id===stopId);
+  if (!s) return;
+  if (s.marker) map.removeLayer(s.marker);
+  if (s.circle) map.removeLayer(s.circle);
+  STOPS = STOPS.filter(x=>x.id!==stopId);
+  renderStopList();
+  renderRouteStats();
+  refreshAllStopIcons();
+  updateRoute();
+  if (STOPS.length===0) {
+    document.getElementById('route-hint').style.display = 'block';
+    document.getElementById('route-stats').style.display = 'none';
+    document.getElementById('clear-route-btn').style.display = 'none';
+  }
+}
+
+function moveStop(stopId, dir) {
+  const idx = STOPS.findIndex(x=>x.id===stopId);
+  if (idx<0) return;
+  const newIdx = idx + dir;
+  if (newIdx<0 || newIdx>=STOPS.length) return;
+  [STOPS[idx], STOPS[newIdx]] = [STOPS[newIdx], STOPS[idx]];
+  refreshAllStopIcons();
+  renderStopList();
+  updateRoute();
+}
+
+function clearRoute() {
+  STOPS.forEach(s => {
+    if (s.marker) map.removeLayer(s.marker);
+    if (s.circle) map.removeLayer(s.circle);
+  });
+  STOPS = [];
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  stopIdSeq = 1;
+  delete savedRouteData[activeRouteId];
+  renderStopList();
+  renderRouteStats();
+  document.getElementById('route-hint').style.display = 'block';
+  document.getElementById('route-stats').style.display = 'none';
+  document.getElementById('clear-route-btn').style.display = 'none';
+}
+
+// ══════════════════════════════════════════
+// ROUTE RENDERING
+// ══════════════════════════════════════════
+let routeDebounce = null;
+function updateRoute() {
+  if (STOPS.length < 2) {
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    return;
+  }
+  clearTimeout(routeDebounce);
+  routeDebounce = setTimeout(fetchRoute, 600);
+}
+
+async function fetchRoute() {
+  const coords = STOPS.map(s => `${s.lng},${s.lat}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.routes && d.routes.length > 0) {
+      drawRoute(d.routes[0].geometry.coordinates.map(c => [c[1],c[0]]));
+    } else {
+      drawStraightRoute();
+    }
+  } catch {
+    drawStraightRoute();
+  }
+}
+
+function drawRoute(latlngs) {
+  if (routeLine) map.removeLayer(routeLine);
+  routeLine = L.polyline(latlngs, {
+    color: activeRouteColor(), weight:4, opacity:.85
+  }).addTo(map);
+}
+
+function drawStraightRoute() {
+  if (routeLine) map.removeLayer(routeLine);
+  const latlngs = STOPS.map(s => [s.lat, s.lng]);
+  routeLine = L.polyline(latlngs, {
+    color: activeRouteColor(), weight:3, opacity:.7, dashArray:'8,6'
+  }).addTo(map);
+}
+
+// ══════════════════════════════════════════
+// RENDER LISTS
+// ══════════════════════════════════════════
+function renderEmpList() {
+  const q = document.getElementById('search-emp').value.toLowerCase();
+  const list = document.getElementById('emp-list');
+  list.innerHTML = '';
+  EMP.forEach(e => {
+    if (q && !e.name.toLowerCase().includes(q) && !e.addr.toLowerCase().includes(q)) return;
+    const c = color(e.tr);
+    const assigned = getStopForEmp(e.id);
+    const div = document.createElement('div');
+    div.className = 'emp-item' + (e.notFound ? ' not-found' : '');
+    div.id = 'ei-'+e.id;
+    div.innerHTML = `
+      <div class="emp-row1">
+        <span class="emp-num">${e.id}</span>
+        <span class="emp-dot" style="background:${c}"></span>
+        <span class="emp-name">${e.name}</span>
+        ${!e.marker && !e.notFound ? '<span class="emp-spin">⏳</span>' : ''}
+        ${e.notFound
+          ? `<button id="retry-btn-${e.id}" class="emp-retry-btn" onclick="event.stopPropagation();retryGeocodeEmp(${e.id})">↻ Найти</button>`
+          : ''}
+        ${assigned && !e.notFound ? `<span style="font-size:9px;color:#f59e0b;margin-left:auto">🚏 ${assigned.name||'Ост.'+assigned.id}</span>` : ''}
+      </div>
+      <div class="emp-addr">📍 ${e.addr}</div>
+      <div class="emp-trans">${e.tr==='—' ? '' : '🚌 '+e.tr}</div>
+    `;
+    div.onclick = () => {
+      if (!e.marker) return;
+      map.setView(e.marker.getLatLng(), 16, { animate:true });
+      e.marker.openPopup();
+      document.querySelectorAll('.emp-item').forEach(el => el.classList.remove('active'));
+      div.classList.add('active');
+    };
+    list.appendChild(div);
+  });
+}
+
+function renderStopList() {
+  const list = document.getElementById('stops-list');
+  list.innerHTML = '';
+  if (STOPS.length === 0) return;
+  STOPS.forEach((s, i) => {
+    const names = s.assignedEmps
+      .map(id => EMP.find(e=>e.id===id)?.name || '?')
+      .join(', ') || 'Нет сотрудников';
+    const div = document.createElement('div');
+    div.className = 'stop-item';
+    div.id = 'si-'+s.id;
+    div.innerHTML = `
+      <div class="stop-row1">
+        <div class="stop-seq">${i+1}</div>
+        <div class="stop-name">${s.name}</div>
+        ${s.time ? `<div class="stop-time-badge">${s.time}</div>` : ''}
+      </div>
+      <div class="stop-emps" title="${names}">👥 ${s.assignedEmps.length > 0 ? s.assignedEmps.length+' чел.: '+names.slice(0,40)+(names.length>40?'...':'') : 'Нет сотрудников'}</div>
+      <div class="stop-btns">
+        ${i>0 ? `<button class="stop-btn stop-btn-up" onclick="moveStop(${s.id},-1);event.stopPropagation()">↑</button>` : ''}
+        ${i<STOPS.length-1 ? `<button class="stop-btn stop-btn-down" onclick="moveStop(${s.id},1);event.stopPropagation()">↓</button>` : ''}
+        <button class="stop-btn stop-btn-del" onclick="deleteStop(${s.id});event.stopPropagation()">✕ Удалить</button>
+      </div>
+    `;
+    div.onclick = () => {
+      if (s.marker) { map.setView([s.lat,s.lng], 16, {animate:true}); s.marker.openPopup(); }
+      document.querySelectorAll('.stop-item').forEach(el => el.classList.remove('active'));
+      div.classList.add('active');
+    };
+    list.appendChild(div);
+  });
+}
+
+function renderRouteStats() {
+  const covered = new Set(STOPS.flatMap(s => s.assignedEmps)).size;
+  document.getElementById('stat-stops').textContent = STOPS.length;
+  document.getElementById('stat-emps').textContent = covered;
+  renderEmpList();
+}
+
+// ══════════════════════════════════════════
+// FIT
+// ══════════════════════════════════════════
+function fitAll() {
+  const pts = EMP.filter(e=>e.marker).map(e=>e.marker.getLatLng());
+  if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.1));
+}
+
+// ══════════════════════════════════════════
+// GEOCODING
+// ══════════════════════════════════════════
+let geocodeDone = 0;
+const GEO_TOTAL = EMP.length;
+const VOLOGDA_BOX  = '39.65,59.35,40.10,59.15';
+const VOLOGDA_WIDE = '39.00,59.50,40.50,58.90';
+
+function buildGeoQuery(e) {
+  const a = e.addr.toLowerCase();
+  if (a.includes('надеево'))     return { q:'посёлок Надеево Вологодская область', box:VOLOGDA_WIDE, bounded:0 };
+  if (a.includes('михалево'))    return { q:'Михалево Вологодский район',           box:VOLOGDA_WIDE, bounded:0 };
+  if (a.includes('сосновка'))    return { q:'посёлок Сосновка Вологодский район',   box:VOLOGDA_WIDE, bounded:0 };
+  if (a.includes('белозерское')) return { q:'Вологда Белозерское шоссе',            box:VOLOGDA_BOX,  bounded:1 };
+  return { q:`Вологда ${e.addr}`, box:VOLOGDA_BOX, bounded:1 };
+}
+
+async function nominatim(q, box, bounded) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ru&accept-language=ru`
+    + `&viewbox=${box}&bounded=${bounded}&q=${encodeURIComponent(q)}`;
+  const r = await fetch(url, { headers:{ 'User-Agent':'VologdaDeliveryMap/2.0' } });
+  const d = await r.json();
+  return d && d.length > 0 ? d[0] : null;
+}
+
+function updateGeoProgressDisplay() {
+  const total = EMP.filter(e => e.id < 100).length; // только базовые сотрудники
+  const pct = Math.min(geocodeDone / total * 100, 100);
+  document.getElementById('prog-fill').style.width = pct+'%';
+  document.getElementById('prog-count').textContent = `${geocodeDone} / ${total}`;
+  if (geocodeDone >= total) {
+    const found = EMP.filter(e=>e.marker).length;
+    document.getElementById('prog-label').textContent = `✓ Загружено ${found} из ${EMP.length}`;
+  }
+}
+
+function updateGeoProgress() {
+  geocodeDone++;
+  updateGeoProgressDisplay();
+  if (geocodeDone >= EMP.filter(e => e.id < 100).length) fitAll();
+  renderEmpList();
+}
+
+async function geocodeOne(e) {
+  // Если позиция уже известна из импорта — пропускаем геокодирование
+  const ov = empOverrides[e.id];
+  if (ov) {
+    if (!e.marker) addEmpMarker(e, ov.lat, ov.lng);
+    updateGeoProgress();
+    return;
+  }
+
+  const { q, box, bounded } = buildGeoQuery(e);
+  try {
+    let hit = await nominatim(q, box, bounded);
+    if (!hit) {
+      const streetOnly = e.addr.replace(/\s+\d+[А-Яа-яA-Za-z\/\-]*$/, '').trim();
+      if (streetOnly.length > 2 && streetOnly !== e.addr)
+        hit = await nominatim(`Вологда ${streetOnly}`, VOLOGDA_BOX, 1);
+    }
+    if (hit) addEmpMarker(e, parseFloat(hit.lat), parseFloat(hit.lon));
+    else e.notFound = true;
+  } catch {
+    e.notFound = true;
+  }
+  updateGeoProgress();
+}
+
+async function runGeocoding() {
+  for (let i=0; i<EMP.length; i++) {
+    await geocodeOne(EMP[i]);
+    if (i < EMP.length-1) await new Promise(r => setTimeout(r, 1150));
+  }
+}
+
+// ══════════════════════════════════════════
+// WALK RADIUS CONTROL
+// ══════════════════════════════════════════
+function setWalkRadius(r) {
+  if (!r || r < 100 || r > 10000) return;
+  walkRadius = r;
+  document.getElementById('radius-input').value = r;
+  // обновляем все существующие круги
+  STOPS.forEach(s => { if (s.circle) s.circle.setRadius(r); });
+  // обновляем кнопку авто-назначения (подсказка)
+  document.querySelectorAll('.sp-auto').forEach(b => {
+    b.textContent = `⚡ Авто (${r}м)`;
+  });
+  // обновляем пресеты
+  document.querySelectorAll('.radius-preset').forEach(b => {
+    b.classList.toggle('active', +b.dataset.r === r);
+  });
+}
+
+function toggleWalkCircles() {
+  walkVisible = !walkVisible;
+  const btn = document.getElementById('radius-toggle');
+  btn.classList.toggle('off', !walkVisible);
+  const opacity = walkVisible ? 1 : 0;
+  STOPS.forEach(s => {
+    if (s.circle) s.circle.setStyle({ opacity, fillOpacity: walkVisible ? 0.04 : 0 });
+  });
+}
+
+function applyPreset(btn, r) {
+  setWalkRadius(r);
+}
+
+// ══════════════════════════════════════════
+// RETRY FAILED EMPLOYEE GEOCODING
+// ══════════════════════════════════════════
+async function retryGeocodeEmp(empId) {
+  const e = EMP.find(x => x.id === empId);
+  if (!e) return;
+
+  // Показываем спиннер
+  const retryBtn = document.getElementById('retry-btn-' + empId);
+  if (retryBtn) { retryBtn.textContent = '⏳'; retryBtn.classList.add('spinning'); }
+
+  e.notFound = false;
+
+  const { q, box, bounded } = buildGeoQuery(e);
+  try {
+    let hit = await nominatim(q, box, bounded);
+    if (!hit) {
+      const streetOnly = e.addr.replace(/\s+\d+[А-Яа-яA-Za-z\/\-]*$/, '').trim();
+      if (streetOnly.length > 2 && streetOnly !== e.addr)
+        hit = await nominatim(`Вологда ${streetOnly}`, VOLOGDA_BOX, 1);
+    }
+    if (hit) {
+      addEmpMarker(e, parseFloat(hit.lat), parseFloat(hit.lon));
+      map.setView(e.marker.getLatLng(), 16, { animate:true });
+      e.marker.openPopup();
+      showToast(`✓ Найден: ${e.name}`);
+    } else {
+      // Не нашли — предлагаем исправить адрес вручную
+      e.notFound = true;
+      openRetryModal(e);
+    }
+  } catch {
+    e.notFound = true;
+    showToast('✗ Ошибка соединения, попробуйте ещё раз', true);
+  }
+  renderEmpList();
+}
+
+function openRetryModal(e) {
+  // Переиспользуем модалку добавления сотрудника, но предзаполняем данные
+  document.getElementById('aem-name').value = e.name;
+  document.getElementById('aem-pos').value  = e.pos || '';
+  document.getElementById('aem-addr').value = e.addr;
+  document.getElementById('aem-tr').value   = e.tr === '—' ? '' : e.tr;
+  document.getElementById('aem-geo-status').textContent = '⚠ Адрес не найден. Исправьте и попробуйте снова.';
+
+  // Временно заменяем обработчик кнопки — обновляем существующего, не создаём нового
+  const submitBtn = document.querySelector('#add-emp-box .aem-submit');
+  submitBtn.onclick = () => retryWithCorrectedAddr(e);
+  document.getElementById('add-emp-modal').classList.add('open');
+}
+
+async function retryWithCorrectedAddr(e) {
+  const newAddr = document.getElementById('aem-addr').value.trim();
+  const newName = document.getElementById('aem-name').value.trim();
+  const newPos  = document.getElementById('aem-pos').value.trim();
+  const newTr   = document.getElementById('aem-tr').value.trim() || '—';
+  if (!newAddr) return;
+
+  e.addr = newAddr;
+  e.name = newName || e.name;
+  e.pos  = newPos;
+  e.tr   = newTr;
+  e.notFound = false;
+
+  const statusEl = document.getElementById('aem-geo-status');
+  statusEl.textContent = '🔍 Геокодирование...';
+
+  try {
+    const hit = await nominatim(`Вологда ${newAddr}`, VOLOGDA_BOX, 1);
+    if (hit) {
+      if (e.marker) map.removeLayer(e.marker); e.marker = null;
+      addEmpMarker(e, parseFloat(hit.lat), parseFloat(hit.lon));
+      map.setView(e.marker.getLatLng(), 16, { animate:true });
+      e.marker.openPopup();
+      closeAddEmpModal();
+      // Восстановить стандартный обработчик
+      document.querySelector('#add-emp-box .aem-submit').onclick = addEmployeeManual;
+      showToast(`✓ Найден: ${e.name}`);
+    } else {
+      e.notFound = true;
+      statusEl.textContent = '✗ Снова не найден. Попробуйте другой адрес.';
+    }
+  } catch {
+    e.notFound = true;
+    statusEl.textContent = '✗ Ошибка соединения.';
+  }
+  renderEmpList();
+}
+
+// ══════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════
+function showToast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.color = isErr ? '#ef4444' : '#10b981';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ══════════════════════════════════════════
+// EXPORT / IMPORT STATE
+// ══════════════════════════════════════════
+
+/**
+ * Экспорт состояния в JSON.
+ * Формат совместим с будущим API udnetretail.ru —
+ * при интеграции достаточно заменить download на POST /api/map-state
+ */
+function exportState() {
+  // Позиции сотрудников (учитываем перемещения)
+  const positions = {};
+  EMP.forEach(e => {
+    if (e.marker) {
+      const ll = e.marker.getLatLng();
+      positions[e.id] = { lat: ll.lat, lng: ll.lng };
+    }
+  });
+
+  // Данные остановок (без Leaflet-объектов)
+  const stopsData = STOPS.map(s => ({
+    id: s.id,
+    lat: s.lat,
+    lng: s.lng,
+    name: s.name,
+    time: s.time,
+    assignedEmps: [...s.assignedEmps]
+  }));
+
+  // Данные вручную добавленных сотрудников (id >= 100)
+  const extraEmps = EMP.filter(e => e.id >= 100).map(e => ({
+    id: e.id, name: e.name, pos: e.pos, addr: e.addr, tr: e.tr,
+    lat: positions[e.id]?.lat, lng: positions[e.id]?.lng
+  }));
+
+  const state = {
+    version: '2.1',
+    savedAt: new Date().toISOString(),
+    empPositions: positions,
+    extraEmployees: extraEmps,
+    stops: stopsData,
+    stopIdSeq: stopIdSeq,
+    empIdSeq: empIdSeq
+  };
+
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const ts = new Date().toISOString().slice(0,16).replace('T','_').replace(':','-');
+  a.download = `маршрут_вологда_${ts}.json`;
+  a.click();
+  showToast('✓ Состояние сохранено в файл');
+}
+
+/**
+ * Импорт состояния из JSON.
+ * При интеграции — заменить на GET /api/map-state и вызвать applyState(data)
+ */
+function importState(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!data.version) throw new Error('Неверный формат файла');
+      applyState(data);
+    } catch(err) {
+      showToast('✗ Ошибка загрузки: ' + err.message, true);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
+function applyState(data) {
+  // 1. Очищаем текущий маршрут
+  clearRoute();
+
+  // 2. Сохраняем переопределения позиций сотрудников
+  if (data.empPositions) {
+    Object.entries(data.empPositions).forEach(([id, pos]) => {
+      empOverrides[parseInt(id)] = pos;
+    });
+  }
+
+  // 3. Добавляем вручную добавленных сотрудников из экспорта
+  if (data.extraEmployees) {
+    data.extraEmployees.forEach(ex => {
+      if (!EMP.find(e => e.id === ex.id)) {
+        EMP.push({ id: ex.id, name: ex.name, pos: ex.pos || '', addr: ex.addr, tr: ex.tr || '—' });
+      }
+    });
+  }
+
+  // 4. Применяем переопределённые позиции к уже загеокодированным маркерам
+  EMP.forEach(e => {
+    const ov = empOverrides[e.id];
+    if (ov && e.marker) {
+      e.marker.setLatLng([ov.lat, ov.lng]);
+      e.lat = ov.lat; e.lng = ov.lng;
+    } else if (ov && !e.marker) {
+      // Маркер ещё не создан — создадим сразу с сохранёнными координатами
+      addEmpMarker(e, ov.lat, ov.lng);
+      geocodeDone++;
+      updateGeoProgressDisplay();
+    }
+  });
+
+  // 5. Восстанавливаем последовательности
+  if (data.stopIdSeq) stopIdSeq = data.stopIdSeq;
+  if (data.empIdSeq)  empIdSeq  = data.empIdSeq;
+
+  // 6. Восстанавливаем остановки
+  if (data.stops && data.stops.length > 0) {
+    data.stops.forEach(sd => {
+      const s = { id: sd.id, lat: sd.lat, lng: sd.lng, name: sd.name, time: sd.time || '', marker: null, circle: null, assignedEmps: sd.assignedEmps || [] };
+      STOPS.push(s);
+      placeStopMarker(s);
+    });
+    refreshAllStopIcons();
+    renderStopList();
+    renderRouteStats();
+    updateRoute();
+    document.getElementById('route-hint').style.display = 'none';
+    document.getElementById('route-stats').style.display = 'flex';
+    document.getElementById('clear-route-btn').style.display = 'block';
+    switchTab('route');
+  }
+
+  renderEmpList();
+  showToast(`✓ Загружено: ${data.stops?.length || 0} ост., ${Object.keys(data.empPositions||{}).length} позиций`);
+}
+
+// ══════════════════════════════════════════
+// ADD EMPLOYEE MANUALLY
+// (будет заменено на API-вызов при интеграции с ERP)
+// ══════════════════════════════════════════
+function openAddEmpModal() {
+  document.getElementById('add-emp-modal').classList.add('open');
+  document.getElementById('aem-name').focus();
+}
+
+function closeAddEmpModal() {
+  document.getElementById('add-emp-modal').classList.remove('open');
+  ['aem-name','aem-pos','aem-addr','aem-tr'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('aem-geo-status').textContent = '';
+  document.querySelector('#add-emp-box .aem-submit').onclick = addEmployeeManual;
+}
+
+async function addEmployeeManual() {
+  const name = document.getElementById('aem-name').value.trim();
+  const pos  = document.getElementById('aem-pos').value.trim();
+  const addr = document.getElementById('aem-addr').value.trim();
+  const tr   = document.getElementById('aem-tr').value.trim() || '—';
+  if (!name || !addr) {
+    document.getElementById('aem-geo-status').textContent = '⚠ Заполните ФИО и адрес';
+    return;
+  }
+  const statusEl = document.getElementById('aem-geo-status');
+  statusEl.textContent = '🔍 Геокодирование...';
+  const e = { id: empIdSeq++, name, pos, addr, tr };
+  EMP.push(e);
+  try {
+    const hit = await nominatim(`Вологда ${addr}`, VOLOGDA_BOX, 1);
+    if (hit) {
+      addEmpMarker(e, parseFloat(hit.lat), parseFloat(hit.lon));
+      map.setView(e.marker.getLatLng(), 16, { animate:true });
+      closeAddEmpModal();
+      showToast(`✓ Добавлен: ${name}`);
+    } else {
+      e.notFound = true;
+      statusEl.textContent = '✗ Адрес не найден. Попробуйте другой.';
+    }
+  } catch {
+    e.notFound = true;
+    statusEl.textContent = '✗ Ошибка соединения.';
+  }
+  renderEmpList();
+}
+
+// ══════════════════════════════════════════
+// PUBLIC TRANSPORT STOPS (OpenStreetMap)
+// ══════════════════════════════════════════
+let ptVisible = false;
+let ptMarkers = [];
+
+async function togglePTStops() {
+  ptVisible = !ptVisible;
+  const btn = document.getElementById('btn-pt');
+  btn.classList.toggle('on', ptVisible);
+
+  if (!ptVisible) {
+    ptMarkers.forEach(m => map.removeLayer(m));
+    ptMarkers = [];
+    return;
+  }
+
+  document.getElementById('pt-loading').style.display = 'block';
+  const b = map.getBounds();
+  const query = `[out:json][timeout:15];(node["highway"="bus_stop"](${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()});node["public_transport"="stop_position"](${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}););out body;`;
+  try {
+    const r = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data='+encodeURIComponent(query) });
+    const d = await r.json();
+    d.elements.forEach(el => {
+      const used = STOPS.some(s => Math.abs(s.lat-el.lat)<0.0002 && Math.abs(s.lng-el.lon)<0.0002);
+      const icon = L.divIcon({
+        html: `<div class="pt-pin${used?' used':''}"></div>`,
+        className:'', iconSize:[14,14], iconAnchor:[7,7]
+      });
+      const name = el.tags?.name || el.tags?.['name:ru'] || 'Остановка ОТ';
+      const m = L.marker([el.lat,el.lon], { icon, zIndexOffset:200 }).addTo(map);
+      m.bindPopup(`
+        <div class="ptp-name">${name}</div>
+        <div class="ptp-meta">🚏 Остановка общественного транспорта</div>
+        <button class="ptp-use-btn" onclick="usePTStop(${el.lat},${el.lon},'${name.replace(/'/g,"\'")}')">+ Добавить в маршрут</button>
+        <div class="ptp-note">Будет добавлена как остановка маршрута</div>
+      `, { maxWidth:220 });
+      ptMarkers.push(m);
+    });
+    showToast(`✓ Загружено ${d.elements.length} остановок ОТ`);
+  } catch {
+    showToast('✗ Не удалось загрузить остановки ОТ', true);
+    ptVisible = false;
+    btn.classList.remove('on');
+  }
+  document.getElementById('pt-loading').style.display = 'none';
+}
+
+window.usePTStop = function(lat, lng, name) {
+  setMode('view');
+  const id = stopIdSeq++;
+  const s = { id, lat, lng, name, time:'', marker:null, circle:null, assignedEmps:[] };
+  STOPS.push(s);
+  placeStopMarker(s);
+  renderStopList();
+  renderRouteStats();
+  updateRoute();
+  document.getElementById('route-hint').style.display = 'none';
+  document.getElementById('route-stats').style.display = 'flex';
+  document.getElementById('clear-route-btn').style.display = 'block';
+  switchTab('route');
+  setTimeout(() => s.marker && s.marker.openPopup(), 100);
+  showToast(`✓ Добавлена остановка: ${name}`);
+};
+
+// ══════════════════════════════════════════
+// MULTI-ROUTE MANAGEMENT
+// ══════════════════════════════════════════
+function renderRouteSelector() {
+  const sel = document.getElementById('route-selector');
+  sel.innerHTML = '';
+  ROUTES_LIST.forEach(r => {
+    const c = ROUTE_COLORS[r.colorIdx % ROUTE_COLORS.length];
+    const tab = document.createElement('div');
+    tab.className = 'route-tab' + (r.id === activeRouteId ? ' active' : '');
+    if (r.id === activeRouteId) tab.style.background = c + '33';
+    tab.innerHTML = `
+      <div class="route-tab-dot" style="background:${c}"></div>
+      <span>${r.name}</span>
+      ${ROUTES_LIST.length > 1 ? `<span class="route-tab-del" onclick="deleteRoute(${r.id},event)">×</span>` : ''}
+    `;
+    tab.onclick = (e) => { if (!e.target.classList.contains('route-tab-del')) switchRoute(r.id); };
+    sel.appendChild(tab);
+  });
+  const addBtn = document.createElement('button');
+  addBtn.id = 'add-route-btn';
+  addBtn.textContent = '+';
+  addBtn.onclick = addRoute;
+  sel.appendChild(addBtn);
+}
+
+function addRoute() {
+  saveCurrentRoute();
+  const id = routeMetaSeq++;
+  const colorIdx = (ROUTES_LIST[ROUTES_LIST.length-1].colorIdx + 1) % ROUTE_COLORS.length;
+  ROUTES_LIST.push({ id, name:'Маршрут '+id, colorIdx });
+  activeRouteId = id;
+  loadRoute(id);
+  renderRouteSelector();
+}
+
+function switchRoute(id) {
+  if (id === activeRouteId) return;
+  saveCurrentRoute();
+  activeRouteId = id;
+  loadRoute(id);
+  renderRouteSelector();
+}
+
+function deleteRoute(id, e) {
+  e.stopPropagation();
+  if (ROUTES_LIST.length <= 1) return;
+  ROUTES_LIST = ROUTES_LIST.filter(r => r.id !== id);
+  delete savedRouteData[id];
+  if (activeRouteId === id) {
+    activeRouteId = ROUTES_LIST[0].id;
+    loadRoute(activeRouteId);
+  }
+  renderRouteSelector();
+}
+
+function saveCurrentRoute() {
+  savedRouteData[activeRouteId] = {
+    stops: STOPS.map(s => ({ id:s.id, lat:s.lat, lng:s.lng, name:s.name, time:s.time, assignedEmps:[...s.assignedEmps] })),
+    stopIdSeq
+  };
+  // remove map layers
+  STOPS.forEach(s => { if(s.marker) map.removeLayer(s.marker); if(s.circle) map.removeLayer(s.circle); });
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+}
+
+function loadRoute(id) {
+  STOPS = [];
+  const d = savedRouteData[id];
+  if (d) {
+    stopIdSeq = d.stopIdSeq;
+    d.stops.forEach(sd => {
+      const s = { ...sd, marker:null, circle:null, assignedEmps:[...sd.assignedEmps] };
+      STOPS.push(s);
+      placeStopMarker(s);
+    });
+    refreshAllStopIcons();
+    updateRoute();
+  } else {
+    stopIdSeq = 1;
+  }
+  renderStopList();
+  renderRouteStats();
+  const hasStops = STOPS.length > 0;
+  document.getElementById('route-hint').style.display = hasStops ? 'none' : 'block';
+  document.getElementById('route-stats').style.display = hasStops ? 'flex' : 'none';
+  document.getElementById('clear-route-btn').style.display = hasStops ? 'block' : 'none';
+}
+
+// ══════════════════════════════════════════
+// PDF EXPORT (с картой и маршрутом)
+// ══════════════════════════════════════════
+async function exportPDF() {
+  showToast('⏳ Генерация PDF...');
+
+  // Скрываем UI-элементы, которые не нужны на скриншоте
+  const modeBar = document.getElementById('mode-bar');
+  const ptLoader = document.getElementById('pt-loading');
+  modeBar.style.display = 'none';
+  ptLoader.style.display = 'none';
+
+  // Ждём, пока тайлы подгрузятся
+  await new Promise(r => setTimeout(r, 800));
+
+  try {
+    const mapEl = document.getElementById('map');
+    const canvas = await html2canvas(mapEl, {
+      useCORS: true,
+      allowTaint: false,
+      scale: 1.5,
+      backgroundColor: '#111318',
+      logging: false,
+      imageTimeout: 10000
+    });
+
+    modeBar.style.display = '';
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+
+    const pageW = 297; // A4 landscape width mm
+    const pageH = 210;
+    const margin = 10;
+
+    // ── Заголовок ──
+    pdf.setFillColor(17, 19, 24);
+    pdf.rect(0, 0, pageW, pageH, 'F');
+
+    pdf.setTextColor(226, 232, 240);
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('🗺 Карта и маршрут — Вологда', margin, margin + 6);
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' }) +
+                    '  ' + now.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
+    pdf.setFontSize(9);
+    pdf.setTextColor(100, 116, 139);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(dateStr, pageW - margin, margin + 6, { align:'right' });
+
+    // ── Карта ──
+    const mapImgData = canvas.toDataURL('image/jpeg', 0.88);
+    const mapAreaW = pageW - margin * 2;
+    const mapAreaH = pageH - margin * 3 - 12;
+    const imgRatio = canvas.width / canvas.height;
+    let imgW = mapAreaW;
+    let imgH = imgW / imgRatio;
+    if (imgH > mapAreaH) { imgH = mapAreaH; imgW = imgH * imgRatio; }
+
+    const mapX = margin + (mapAreaW - imgW) / 2;
+    const mapY = margin + 12;
+
+    // Рамка карты
+    pdf.setDrawColor(47, 63, 90);
+    pdf.setLineWidth(0.5);
+    pdf.rect(mapX - 1, mapY - 1, imgW + 2, imgH + 2);
+    pdf.addImage(mapImgData, 'JPEG', mapX, mapY, imgW, imgH);
+
+    // ── Таблица маршрута (если есть остановки) ──
+    if (STOPS.length > 0) {
+      pdf.addPage();
+      pdf.setFillColor(17, 19, 24);
+      pdf.rect(0, 0, pageW, pageH, 'F');
+
+      pdf.setTextColor(226, 232, 240);
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Маршрут: остановки и сотрудники', margin, margin + 6);
+
+      const routeName = ROUTES_LIST.find(r => r.id === activeRouteId)?.name || 'Маршрут';
+      pdf.setFontSize(10);
+      pdf.setTextColor(100, 116, 139);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(routeName, margin, margin + 13);
+
+      // Шапка таблицы
+      let y = margin + 22;
+      const col = [margin, margin + 10, margin + 65, margin + 120];
+      const rowH = 8;
+
+      pdf.setFillColor(30, 41, 59);
+      pdf.rect(margin, y - 5, pageW - margin * 2, rowH, 'F');
+      pdf.setTextColor(148, 163, 184);
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('#', col[0] + 1, y);
+      pdf.text('Остановка', col[1] + 1, y);
+      pdf.text('Время', col[2] + 1, y);
+      pdf.text('Сотрудники', col[3] + 1, y);
+      y += rowH;
+
+      // Строки
+      pdf.setFont('helvetica', 'normal');
+      STOPS.forEach((s, i) => {
+        if (y > pageH - margin) {
+          pdf.addPage();
+          pdf.setFillColor(17, 19, 24);
+          pdf.rect(0, 0, pageW, pageH, 'F');
+          y = margin + 10;
+        }
+        const bg = i % 2 === 0 ? [20, 24, 35] : [15, 18, 26];
+        pdf.setFillColor(...bg);
+        pdf.rect(margin, y - 5, pageW - margin * 2, rowH, 'F');
+
+        pdf.setTextColor(226, 232, 240);
+        pdf.setFontSize(8);
+        pdf.text(String(i + 1), col[0] + 1, y);
+        pdf.text(s.name || ('Ост. ' + s.id), col[1] + 1, y);
+        pdf.text(s.time || '—', col[2] + 1, y);
+
+        const empNames = s.assignedEmps
+          .map(id => EMP.find(e => e.id === id)?.name || '?')
+          .join(', ') || '—';
+        const truncated = empNames.length > 80 ? empNames.slice(0, 77) + '...' : empNames;
+        pdf.text(truncated, col[3] + 1, y);
+        y += rowH;
+      });
+
+      // Итого
+      y += 4;
+      pdf.setTextColor(100, 116, 139);
+      pdf.setFontSize(8);
+      const covered = new Set(STOPS.flatMap(s => s.assignedEmps)).size;
+      pdf.text(`Всего остановок: ${STOPS.length}   ·   Охвачено сотрудников: ${covered} из ${EMP.length}`, margin, y);
+    }
+
+    // ── Список сотрудников (последняя страница) ──
+    pdf.addPage();
+    pdf.setFillColor(17, 19, 24);
+    pdf.rect(0, 0, pageW, pageH, 'F');
+
+    pdf.setTextColor(226, 232, 240);
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Список сотрудников', margin, margin + 6);
+
+    const headers = ['#', 'ФИО', 'Должность', 'Адрес', 'Транспорт', 'Остановка'];
+    const colW    = [8, 50, 55, 50, 35, 35];
+    let cx = margin;
+    let ey = margin + 22;
+
+    pdf.setFillColor(30, 41, 59);
+    pdf.rect(margin, ey - 5, pageW - margin * 2, 8, 'F');
+    pdf.setTextColor(148, 163, 184);
+    pdf.setFontSize(7);
+    pdf.setFont('helvetica', 'bold');
+    headers.forEach((h, i) => { pdf.text(h, cx + 1, ey); cx += colW[i]; });
+    ey += 8;
+
+    pdf.setFont('helvetica', 'normal');
+    EMP.forEach((e, idx) => {
+      if (ey > pageH - margin) {
+        pdf.addPage();
+        pdf.setFillColor(17, 19, 24);
+        pdf.rect(0, 0, pageW, pageH, 'F');
+        ey = margin + 10;
+      }
+      const rowBg = idx % 2 === 0 ? [20, 24, 35] : [15, 18, 26];
+      pdf.setFillColor(...rowBg);
+      pdf.rect(margin, ey - 5, pageW - margin * 2, 7, 'F');
+
+      pdf.setTextColor(226, 232, 240);
+      pdf.setFontSize(7);
+
+      const assigned = getStopForEmp(e.id);
+      const cells = [
+        String(e.id),
+        e.name.slice(0, 28),
+        (e.pos || '').slice(0, 30),
+        e.addr.slice(0, 28),
+        (e.tr === '—' ? '' : e.tr).slice(0, 20),
+        assigned ? (assigned.name || 'Ост. ' + assigned.id).slice(0, 20) : '—'
+      ];
+      cx = margin;
+      cells.forEach((cell, i) => {
+        pdf.text(cell, cx + 1, ey);
+        cx += colW[i];
+      });
+      ey += 7;
+    });
+
+    const ts = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
+    pdf.save(`маршрут_вологда_${ts}.pdf`);
+    showToast('✓ PDF сохранён');
+  } catch(err) {
+    modeBar.style.display = '';
+    console.error('PDF error:', err);
+    showToast('✗ Ошибка генерации PDF', true);
+  }
+}
+
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+window.assignEmpFromPopup = assignEmpFromPopup;
+window.retryGeocodeEmp   = retryGeocodeEmp;
+
+renderRouteSelector();
+runGeocoding();
+
+</script>
+</body>
+</html>

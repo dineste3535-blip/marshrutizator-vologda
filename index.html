@@ -1359,6 +1359,17 @@ function updateGeoProgress() {
   renderEmpList();
 }
 
+// ── Кэш геокодирования в localStorage ──────────────────────────────────────
+const GEO_CACHE_KEY = 'marshrutizator_geo_v1';
+function geoCache() {
+  try { return JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'); }
+  catch { return {}; }
+}
+function geoCacheSave(cache) {
+  try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache)); } catch {}
+}
+function geoCacheKey(e) { return e.addr.trim().toLowerCase(); }
+
 async function geocodeOne(e) {
   // Если позиция уже известна из импорта — пропускаем геокодирование
   const ov = empOverrides[e.id];
@@ -1366,6 +1377,16 @@ async function geocodeOne(e) {
     if (!e.marker) addEmpMarker(e, ov.lat, ov.lng);
     updateGeoProgress();
     return;
+  }
+
+  // Проверяем кэш — если адрес уже геокодирован, используем сохранённые координаты
+  const cache = geoCache();
+  const ckey = geoCacheKey(e);
+  if (cache[ckey]) {
+    const { lat, lng } = cache[ckey];
+    addEmpMarker(e, lat, lng);
+    updateGeoProgress();
+    return; // сетевой запрос не нужен
   }
 
   const { q, box, bounded } = buildGeoQuery(e);
@@ -1376,8 +1397,12 @@ async function geocodeOne(e) {
       if (streetOnly.length > 2 && streetOnly !== e.addr)
         hit = await nominatim(`Вологда ${streetOnly}`, VOLOGDA_BOX, 1);
     }
-    if (hit) addEmpMarker(e, parseFloat(hit.lat), parseFloat(hit.lon));
-    else e.notFound = true;
+    if (hit) {
+      const lat = parseFloat(hit.lat), lng = parseFloat(hit.lon);
+      addEmpMarker(e, lat, lng);
+      // Сохраняем в кэш
+      const c = geoCache(); c[ckey] = { lat, lng }; geoCacheSave(c);
+    } else e.notFound = true;
   } catch {
     e.notFound = true;
   }
@@ -1387,7 +1412,13 @@ async function geocodeOne(e) {
 async function runGeocoding() {
   for (let i=0; i<EMP.length; i++) {
     await geocodeOne(EMP[i]);
-    if (i < EMP.length-1) await new Promise(r => setTimeout(r, 1150));
+    // Пауза только если следующий сотрудник не в кэше (нужен сетевой запрос)
+    if (i < EMP.length-1) {
+      const next = EMP[i+1];
+      const ov = empOverrides[next.id];
+      const cached = geoCache()[geoCacheKey(next)];
+      if (!ov && !cached) await new Promise(r => setTimeout(r, 1100));
+    }
   }
 }
 
@@ -2036,38 +2067,4 @@ async function exportPDF() {
 
       const page2Html = `
         <div style="padding-bottom:12px;border-bottom:1px solid #1f2330;margin-bottom:18px">
-          <div style="font-size:20px;font-weight:700;color:#e2e8f0;margin-bottom:4px">
-            Маршрут: остановки и сотрудники</div>
-          <div style="font-size:12px;color:#4b5563">
-            ${routeName} &nbsp;·&nbsp; ${dateStr} &nbsp;·&nbsp;
-            ${STOPS.length} ост. &nbsp;·&nbsp; охвачено ${covered} из ${EMP.length} чел.</div>
-        </div>
-        ${sections}`;
-
-      const page2Canvas = await htmlToCanvas(page2Html, 1800);
-      pdf.addPage();
-      addTallCanvas(pdf, page2Canvas, margin, pageW, pageH);
-    }
-
-    const ts = new Date().toISOString().slice(0,16).replace('T','_').replace(':','-');
-    pdf.save(`маршрут_вологда_${ts}.pdf`);
-    showToast('✓ PDF сохранён');
-  } catch(err) {
-    modeBar.style.display = '';
-    console.error('PDF error:', err);
-    showToast('✗ Ошибка генерации PDF', true);
-  }
-}
-
-// ══════════════════════════════════════════
-// INIT
-// ══════════════════════════════════════════
-window.assignEmpFromPopup = assignEmpFromPopup;
-window.retryGeocodeEmp   = retryGeocodeEmp;
-
-renderRouteSelector();
-runGeocoding();
-
-</script>
-</body>
-</html>
+  

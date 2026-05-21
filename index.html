@@ -917,6 +917,7 @@ function makeEmpIcon(e) {
 }
 
 function addEmpMarker(e, lat, lng) {
+  if (e.marker) { map.removeLayer(e.marker); e.marker = null; }
   const icon = makeEmpIcon(e);
   const m = L.marker([lat,lng], { icon, draggable: mode==='move' }).addTo(map);
   m.on('dragend', () => { /* position updates automatically */ });
@@ -1324,21 +1325,29 @@ const GEO_TOTAL = EMP.length;
 const VOLOGDA_BOX  = '39.65,59.35,40.10,59.15';
 const VOLOGDA_WIDE = '39.00,59.50,40.50,58.90';
 
-function buildGeoQuery(e) {
-  const a = e.addr.toLowerCase();
-  if (a.includes('надеево'))     return { q:'посёлок Надеево Вологодская область', box:VOLOGDA_WIDE, bounded:0 };
-  if (a.includes('михалево'))    return { q:'Михалево Вологодский район',           box:VOLOGDA_WIDE, bounded:0 };
-  if (a.includes('сосновка'))    return { q:'посёлок Сосновка Вологодский район',   box:VOLOGDA_WIDE, bounded:0 };
-  if (a.includes('белозерское')) return { q:'Вологда Белозерское шоссе',            box:VOLOGDA_BOX,  bounded:1 };
-  return { q:`Вологда ${e.addr}`, box:VOLOGDA_BOX, bounded:1 };
-}
-
-async function nominatim(q, box, bounded) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ru&accept-language=ru`
-    + `&viewbox=${box}&bounded=${bounded}&q=${encodeURIComponent(q)}`;
+// Структурный запрос: Nominatim city= + street= (лучше справляется с сокращениями)
+async function nominatimStructured(street, city) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=3&countrycodes=ru&accept-language=ru`
+    + `&city=${encodeURIComponent(city || 'Вологда')}`
+    + `&street=${encodeURIComponent(street)}`;
   const r = await fetch(url, { headers:{ 'User-Agent':'VologdaDeliveryMap/2.0' } });
   const d = await r.json();
   return d && d.length > 0 ? d[0] : null;
+}
+
+// Свободный текстовый запрос (без bounded — более мягкий)
+async function nominatim(q, box) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=3&countrycodes=ru&accept-language=ru`
+    + `&viewbox=${box}&q=${encodeURIComponent(q)}`;
+  const r = await fetch(url, { headers:{ 'User-Agent':'VologdaDeliveryMap/2.0' } });
+  const d = await r.json();
+  // Фильтруем — результат должен быть внутри расширенного bbox Вологды
+  if (!d || !d.length) return null;
+  const inArea = d.find(p => {
+    const lat = parseFloat(p.lat), lon = parseFloat(p.lon);
+    return lat > 58.8 && lat < 59.6 && lon > 39.0 && lon < 40.6;
+  });
+  return inArea || null;
 }
 
 function updateGeoProgressDisplay() {
@@ -1389,18 +1398,32 @@ async function geocodeOne(e) {
     return; // сетевой запрос не нужен
   }
 
-  const { q, box, bounded } = buildGeoQuery(e);
   try {
-    let hit = await nominatim(q, box, bounded);
-    if (!hit) {
-      const streetOnly = e.addr.replace(/\s+\d+[А-Яа-яA-Za-z\/\-]*$/, '').trim();
-      if (streetOnly.length > 2 && streetOnly !== e.addr)
-        hit = await nominatim(`Вологда ${streetOnly}`, VOLOGDA_BOX, 1);
+    let hit = null;
+    const a = e.addr.toLowerCase();
+
+    // Посёлки — свободный запрос без привязки к городу
+    if (a.includes('надеево'))  hit = await nominatim('посёлок Надеево Вологодская область', VOLOGDA_WIDE);
+    else if (a.includes('михалево'))  hit = await nominatim('Михалево Вологодский район', VOLOGDA_WIDE);
+    else if (a.includes('сосновка')) hit = await nominatim('посёлок Сосновка Вологодский район', VOLOGDA_WIDE);
+    else {
+      // Шаг 1: структурный запрос city=Вологда + street=<адрес> — лучший для городских адресов
+      hit = await nominatimStructured(e.addr, 'Вологда');
+
+      // Шаг 2: свободный текст без bounded
+      if (!hit) hit = await nominatim(`Вологда ${e.addr}`, VOLOGDA_BOX);
+
+      // Шаг 3: только улица (без номера дома)
+      if (!hit) {
+        const streetOnly = e.addr.replace(/\s+\d+[А-Яа-яA-Za-z\/\-]*$/, '').trim();
+        if (streetOnly.length > 2 && streetOnly !== e.addr)
+          hit = await nominatim(`Вологда ${streetOnly}`, VOLOGDA_BOX);
+      }
     }
+
     if (hit) {
       const lat = parseFloat(hit.lat), lng = parseFloat(hit.lon);
       addEmpMarker(e, lat, lng);
-      // Сохраняем в кэш
       const c = geoCache(); c[ckey] = { lat, lng }; geoCacheSave(c);
     } else e.notFound = true;
   } catch {
@@ -1468,13 +1491,13 @@ async function retryGeocodeEmp(empId) {
 
   e.notFound = false;
 
-  const { q, box, bounded } = buildGeoQuery(e);
   try {
-    let hit = await nominatim(q, box, bounded);
+    let hit = await nominatimStructured(e.addr, 'Вологда');
+    if (!hit) hit = await nominatim(`Вологда ${e.addr}`, VOLOGDA_BOX);
     if (!hit) {
       const streetOnly = e.addr.replace(/\s+\d+[А-Яа-яA-Za-z\/\-]*$/, '').trim();
       if (streetOnly.length > 2 && streetOnly !== e.addr)
-        hit = await nominatim(`Вологда ${streetOnly}`, VOLOGDA_BOX, 1);
+        hit = await nominatim(`Вологда ${streetOnly}`, VOLOGDA_BOX);
     }
     if (hit) {
       addEmpMarker(e, parseFloat(hit.lat), parseFloat(hit.lon));
@@ -1482,7 +1505,6 @@ async function retryGeocodeEmp(empId) {
       e.marker.openPopup();
       showToast(`✓ Найден: ${e.name}`);
     } else {
-      // Не нашли — предлагаем исправить адрес вручную
       e.notFound = true;
       openRetryModal(e);
     }
@@ -1635,7 +1657,8 @@ function applyState(data) {
   // 1. Очищаем текущий маршрут
   clearRoute();
 
-  // 2. Сохраняем переопределения позиций сотрудников
+  // 2. Сбрасываем старые позиции и применяем из файла (предотвращает "съезд" маркеров при загрузке нового JSON)
+  empOverrides = {};
   if (data.empPositions) {
     Object.entries(data.empPositions).forEach(([id, pos]) => {
       empOverrides[parseInt(id)] = pos;
@@ -1937,6 +1960,10 @@ async function exportPDF() {
       'font-size:11px;font-weight:900;color:#000;box-shadow:0 0 0 2px rgba(0,0,0,.15);';
   });
 
+  // ─ Сохраняем вид карты перед подгоном ──────────────────────
+  const origCenter = map.getCenter();
+  const origZoom   = map.getZoom();
+
   // ─ Подгон карты под маршрут (чтобы не вылезал) ──────────────
   const boundsArr = [];
   STOPS.forEach(s => boundsArr.push([s.lat, s.lng]));
@@ -1998,67 +2025,32 @@ async function exportPDF() {
     pdf.text('стр. 1', PW - M, footY, { align: 'right' });
 
     // ════════════════════════════════════════════
-    // СТРАНИЦА 2+: Остановки + сотрудники
+    // СТРАНИЦА 2+: Только остановки (без сотрудников)
     // ════════════════════════════════════════════
-    function empIcon(tr) {
-      if (!tr || tr === '—') return '';
-      const l = tr.toLowerCase();
-      if (l.includes('велосипед')) return '🚲';
-      if (l.includes('личн'))   return '🚗';
-      if (l.includes('такси'))    return '🚕';
-      if (l.includes('пешком'))  return '🚶';
-      if (l.includes('попутка'))  return '🚙';
-      if (l.includes('автобус'))  return '🚌';
-      return '🚐';
-    }
-
     const stopSections = STOPS.map((s, si) => {
-      const rows = s.assignedEmps.length > 0
-        ? s.assignedEmps.map(id => {
-            const e = EMP.find(x => x.id === id);
-            if (!e) return '';
-            const tr = (e.tr && e.tr !== '—') ? e.tr : '';
-            return `<tr>
-              <td style="padding:4px 8px;font-size:11px;color:#6b7280;border-bottom:1px solid #f3f4f6;width:26px">${e.id}</td>
-              <td style="padding:4px 8px;font-size:12px;font-weight:500;color:#111827;border-bottom:1px solid #f3f4f6">${e.name}</td>
-              <td style="padding:4px 8px;font-size:10px;color:#6b7280;border-bottom:1px solid #f3f4f6">${e.pos || ''}</td>
-              <td style="padding:4px 8px;font-size:11px;color:#374151;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap">${empIcon(e.tr)} ${tr}</td>
-            </tr>`;
-          }).join('')
-        : `<tr><td colspan="4" style="padding:8px;font-size:11px;color:#9ca3af;font-style:italic;border-bottom:1px solid #f3f4f6">Сотрудники не назначены</td></tr>`;
-
-      return `<div style="margin-bottom:20px;page-break-inside:avoid">
+      return `<div style="margin-bottom:12px;page-break-inside:avoid;font-family:Arial,Helvetica,sans-serif">
         <div style="display:flex;align-items:center;gap:12px;background:#f1f5f9;
-                    padding:10px 14px;border-radius:6px;margin-bottom:2px;border-left:5px solid #1e3a8a">
-          <div style="width:30px;height:30px;border-radius:50%;background:#fff;border:3px solid #000;
+                    padding:10px 14px;border-radius:6px;border-left:5px solid #1e3a8a">
+          <div style="width:32px;height:32px;border-radius:50%;background:#fff;border:3px solid #000;
                       display:flex;align-items:center;justify-content:center;
-                      font-size:14px;font-weight:900;color:#000;flex-shrink:0">${si+1}</div>
-          <div style="flex:1">
-            <div style="font-size:15px;font-weight:700;color:#111827">${s.name || 'Остановка '+(si+1)}</div>
-            ${s.time ? `<div style="font-size:10px;color:#374151">⏱ ${s.time}</div>` : ''}
+                      font-size:14px;font-weight:900;color:#000;font-family:Arial,Helvetica,sans-serif;flex-shrink:0">${si+1}</div>
+          <div style="flex:1;font-family:Arial,Helvetica,sans-serif">
+            <div style="font-size:16px;font-weight:700;color:#111827">${s.name || 'Остановка '+(si+1)}</div>
+            ${s.time ? `<div style="font-size:11px;color:#374151;margin-top:2px">Время: ${s.time}</div>` : ''}
           </div>
-          <div style="font-size:13px;font-weight:700;color:#1e3a8a">${s.assignedEmps.length} чел.</div>
+          <div style="font-size:14px;font-weight:700;color:#1e3a8a;font-family:Arial,Helvetica,sans-serif;white-space:nowrap">${s.assignedEmps.length} чел.</div>
         </div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="background:#f9fafb">
-            <th style="padding:4px 8px;font-size:9px;color:#9ca3af;font-weight:600;text-align:left;border-bottom:2px solid #e5e7eb">№</th>
-            <th style="padding:4px 8px;font-size:9px;color:#9ca3af;font-weight:600;text-align:left;border-bottom:2px solid #e5e7eb">ФИО</th>
-            <th style="padding:4px 8px;font-size:9px;color:#9ca3af;font-weight:600;text-align:left;border-bottom:2px solid #e5e7eb">ДОЛЖНОСТЬ</th>
-            <th style="padding:4px 8px;font-size:9px;color:#9ca3af;font-weight:600;text-align:right;border-bottom:2px solid #e5e7eb">КАК ЕДЕТ</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
       </div>`;
     }).join('');
 
-    const page2Html = `<div style="font-family:Arial,sans-serif;background:#fff;color:#111827;font-size:12px">
+    const page2Html = `<div style="font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111827;font-size:12px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;
                   padding-bottom:10px;border-bottom:3px solid #1e3a8a;margin-bottom:18px">
         <div>
-          <div style="font-size:20px;font-weight:700;color:#111827">🚌 ${routeName}</div>
-          <div style="font-size:11px;color:#6b7280;margin-top:4px">${STOPS.length} остановок • ${covered} из ${totalEmp} сотрудников • ${dateStr}</div>
+          <div style="font-size:22px;font-weight:700;color:#111827;font-family:Arial,Helvetica,sans-serif">${routeName}</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:4px;font-family:Arial,Helvetica,sans-serif">${STOPS.length} остановок | ${covered} из ${totalEmp} сотрудников | ${dateStr}</div>
         </div>
-        <div style="font-size:11px;color:#9ca3af">стр. 2</div>
+        <div style="font-size:11px;color:#9ca3af;font-family:Arial,Helvetica,sans-serif">стр. 2</div>
       </div>
       ${stopSections}
     </div>`;
@@ -2091,17 +2083,19 @@ async function exportPDF() {
       pdf.addImage(sl.toDataURL('image/png'), 'PNG', M, M, aW, dH);
     }
 
-    pdf.save(`marshrutizator_${routeName}_${dateStr.replace(/\./g,'')}.pdf`);
-    showToast('✅ PDF готов!');
+    pdf.save(`marshrutizator_${routeName}_${dateStr.replace(/\./g,'_')}.pdf`);
+    showToast('PDF готов!');
 
   } catch(err) {
     console.error('PDF error:', err);
-    showToast('❌ Ошибка: ' + err.message);
+    showToast('Ошибка: ' + err.message);
   } finally {
     // Восстанавливаем карту
     try { map.removeLayer(printTile); } catch {}
     if (origLayer) { try { origLayer.addTo(map); } catch {} }
     map.getContainer().style.background = '';
+    // Возвращаем вид карты (зум и центр)
+    map.setView(origCenter, origZoom, { animate: false });
     // Маршрут
     if (routeLine && origRouteStyle) routeLine.setStyle(origRouteStyle);
     // Маркеры остановок
@@ -2112,6 +2106,13 @@ async function exportPDF() {
     if (ptLoader) ptLoader.style.display = '';
   }
 }
+
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+renderEmpList();
+renderRouteSelector();
+runGeocoding();
 
 </script>
 </body>
